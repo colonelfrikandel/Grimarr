@@ -41,6 +41,28 @@ public sealed class Store
     public void Save(Settings settings) => Write("INSERT INTO settings VALUES (1,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$json", JsonSerializer.Serialize(settings with { Prowlarr = Encode(settings.Prowlarr), Qbittorrent = Encode(settings.Qbittorrent), Audiobookshelf = Encode(settings.Audiobookshelf) }, Json)));
     public void Save(Book book) => Write("INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$id", book.Id), ("$json", JsonSerializer.Serialize(book with { SelectedRelease = book.SelectedRelease == null ? null : book.SelectedRelease with { DownloadUrl = book.SelectedRelease.DownloadUrl == null ? null : Protect(book.SelectedRelease.DownloadUrl), MagnetUrl = book.SelectedRelease.MagnetUrl == null ? null : Protect(book.SelectedRelease.MagnetUrl) } }, Json)));
     public void Log(Book book, string message) => Write("INSERT INTO activity(at,bookId,title,message) VALUES ($at,$id,$title,$message)", ("$at", DateTimeOffset.UtcNow.ToString("O")), ("$id", book.Id), ("$title", book.Title), ("$message", message));
+    public void Remove(Book book)
+    {
+        if (!book.CanRemove) throw new InvalidOperationException("Only books that have not started downloading can be removed.");
+        Write("DELETE FROM books WHERE id=$id", ("$id", book.Id));
+        Log(book, "Removed from Grimarr");
+    }
+    public void SaveSelection(IReadOnlyList<Book> books)
+    {
+        using var db = Open(); using var transaction = db.BeginTransaction();
+        foreach (var book in books)
+        {
+            var release = book.SelectedRelease!;
+            var protectedBook = book with { SelectedRelease = release with { DownloadUrl = release.DownloadUrl == null ? null : Protect(release.DownloadUrl), MagnetUrl = release.MagnetUrl == null ? null : Protect(release.MagnetUrl) } };
+            using var cmd = db.CreateCommand(); cmd.Transaction = transaction;
+            cmd.CommandText = "INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json";
+            cmd.Parameters.AddWithValue("$id",book.Id); cmd.Parameters.AddWithValue("$json",JsonSerializer.Serialize(protectedBook,Json)); cmd.ExecuteNonQuery();
+            using var log = db.CreateCommand(); log.Transaction = transaction;
+            log.CommandText = "INSERT INTO activity(at,bookId,title,message) VALUES ($at,$id,$title,'Release selected manually and queued for download')";
+            log.Parameters.AddWithValue("$at",DateTimeOffset.UtcNow.ToString("O")); log.Parameters.AddWithValue("$id",book.Id); log.Parameters.AddWithValue("$title",book.Title); log.ExecuteNonQuery();
+        }
+        transaction.Commit();
+    }
     public List<Activity> Activities()
     {
         using var db = Open(); using var cmd = db.CreateCommand();

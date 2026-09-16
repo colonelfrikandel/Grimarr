@@ -6,12 +6,18 @@ public static class Ranking
 {
     private static string Normalize(string value) => Regex.Replace(value.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD), @"[^a-z0-9]+", " ").Trim();
     private static HashSet<string> Words(string value) => Normalize(value).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+    public static bool ContainsWords(string actual, string expected) => Words(expected).Count > 0 && Words(expected).IsSubsetOf(Words(actual));
     private static bool Has(string title, string expression) => Regex.IsMatch(title, expression, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     public static RankedRelease Rank(Book book, Release release)
     {
         var reasons = new List<string>(); var eligible = true; double score = 0;
         void Reject(string reason) { eligible = false; reasons.Add(reason); }
         var title = release.Title;
+        if (release.MetadataError is { Length: > 0 }) Reject(release.MetadataError);
+        var requestedBook = Regex.Match(book.Title, @"\bbook\s*(\d+)\b", RegexOptions.IgnoreCase);
+        var releaseBook = Regex.Match(title, @"\bbook\s*(\d+)\b", RegexOptions.IgnoreCase);
+        if (requestedBook.Success && (!releaseBook.Success || requestedBook.Groups[1].Value.TrimStart('0') != releaseBook.Groups[1].Value.TrimStart('0'))) Reject("Book number does not match");
+        if (Has(title, @"\b(?:episodes?|parts?)\s*\d+\b") && !Has(book.Title, @"\b(?:episodes?|parts?)\s*\d+\b")) Reject("Partial book or individual episode needs manual handling");
         var words = Words(title);
         var expected = Words(book.Title);
         if (expected.Count == 0 || !expected.IsSubsetOf(words)) Reject("Title does not fully match");
@@ -27,14 +33,19 @@ public static class Ranking
         if (foreign) Reject("Non-English or conflicting language");
         else if (!english) Reject("English language not confirmed");
         else { score += 20; reasons.Add("English confirmed"); }
-        var dramatized = release.Narration == "dramatized" || Has(title, @"\b(dramati[sz]ed|full[ -]cast|graphic[ -]?audio|audio[ -]drama)\b");
+        var dramatized = release.Narration == "dramatized" || Has(title, @"\b(dramati[sz]ed|full[ -]cast|graphic[ -]?audio|audio[ -]drama|audio immersion tunnel)\b");
         if (book.Preferences.Narration == "standard" && dramatized) Reject("Dramatized edition excluded");
         if (book.Preferences.Narration == "dramatized" && !dramatized) Reject("Dramatized edition not confirmed");
         var unabridged = release.Abridgement == "unabridged" || Has(title, @"\bunabridged\b");
         var abridged = release.Abridgement == "abridged" || Has(title, @"\babridged\b");
         if (book.Preferences.Abridgement == "unabridged" && (!unabridged || abridged)) Reject("Unabridged edition not confirmed");
         if (book.Preferences.Abridgement == "abridged" && (!abridged || unabridged)) Reject("Abridged edition not confirmed");
-        if (release.Seeders < book.Preferences.MinimumSeeders) Reject("Too few seeders");
+        if (!release.SeedersKnown)
+        {
+            reasons.Add("Seeder count unavailable from source");
+            if (book.Preferences.MinimumSeeders > 0) Reject("A verified minimum seeder count is required");
+        }
+        else if (release.Seeders < book.Preferences.MinimumSeeders) Reject("Too few seeders");
         else { score += Math.Min(15, Math.Log2(release.Seeders + 1) * 2); reasons.Add($"{release.Seeders} seeders"); }
         if (release.Size <= 0) Reject("Size not provided");
         if (book.Preferences.PreferM4b && Has(title, @"\bm4b\b")) { score += 5; reasons.Add("Preferred M4B format"); }

@@ -24,6 +24,7 @@ export type Settings = {
   defaults: Preferences;
   searchIntervalMinutes: number;
   automationEnabled: boolean;
+  manualSelection: boolean;
 };
 export type Book = {
   id: string;
@@ -32,6 +33,7 @@ export type Book = {
   cover: string;
   status: string;
   suspended: boolean;
+  canRemove: boolean;
   progress: number;
   message: string;
   preferences: Preferences;
@@ -45,7 +47,10 @@ export type CatalogBook = {
   catalogId: string;
 };
 export type Release = {
-  release: { title: string; indexer: string; seeders: number; size: number };
+  selectionId?: string;
+  canSelect?: boolean;
+  alreadyTracked?: boolean;
+  release: { title: string; indexer: string; seeders: number; seedersKnown?: boolean; size: number };
   score: number;
   eligible: boolean;
   reasons: string[];

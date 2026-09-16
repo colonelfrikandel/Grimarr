@@ -4,8 +4,10 @@ using System.Text.Json;
 
 namespace Grimarr;
 
-public sealed class Integrations
+public sealed class Integrations : IDisposable
 {
+    private readonly AudiobookBay audiobookBay = new();
+    public void Dispose() => audiobookBay.Dispose();
     public static Uri BaseUrl(string url)
     {
         if (!Uri.TryCreate(url.TrimEnd('/') + "/", UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
@@ -19,20 +21,25 @@ public sealed class Integrations
         else if (header != null) client.DefaultRequestHeaders.Add(header, connection.ApiKey);
         return client;
     }
-    public async Task<List<Release>> Search(Settings settings, Book book, CancellationToken ct)
+    public async Task<List<Release>> Search(Settings settings, Book book, CancellationToken ct, string? searchQuery = null, bool manual = false)
     {
         using var client = Client(settings.Prowlarr, "X-Api-Key");
-        var query = $"api/v1/search?query={Uri.EscapeDataString(book.Title + " " + book.Author)}&type=search&categories=3030";
+        var query = $"api/v1/search?query={Uri.EscapeDataString(searchQuery ?? (book.Title + " " + book.Author))}&type=search&categories=3030";
         foreach (var id in settings.IndexerIds) query += $"&indexerIds={id}";
         using var response = await client.GetAsync(query, ct); response.EnsureSuccessStatusCode();
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        return json.RootElement.EnumerateArray().Select(r => new Release {
+        var releases = json.RootElement.EnumerateArray().Select(r => new Release {
             Guid = Text(r,"guid"), Title = Text(r,"title"), Indexer = Text(r,"indexer"), IndexerId = Number(r,"indexerId"),
             Protocol = r.TryGetProperty("protocol", out var protocol) && protocol.ValueKind == JsonValueKind.Number ? (protocol.GetInt32() == 2 ? "torrent" : "usenet") : Text(r,"protocol"),
             DownloadUrl = Text(r,"downloadUrl"), MagnetUrl = Text(r,"magnetUrl"), InfoHash = Text(r,"infoHash"), Seeders = Number(r,"seeders"),
             Size = r.TryGetProperty("size", out var size) && size.ValueKind == JsonValueKind.Number && size.TryGetInt64(out var bytes) ? bytes : 0
         }).ToList();
+        if (!manual) await audiobookBay.Enrich(book, releases, ct);
+        else for (int i = 0; i < releases.Count; i++)
+            if (AudiobookBay.IsDetailUrl(releases[i].Guid)) releases[i] = releases[i] with { Seeders = 0, SeedersKnown = false };
+        return releases;
     }
+    public Task VerifyChoices(Book book, List<Release> releases, CancellationToken ct) => audiobookBay.Enrich(book, releases, ct, manual: true);
     public async Task<JsonElement> Libraries(Settings settings, CancellationToken ct)
     {
         using var client = Client(settings.Audiobookshelf, "bearer");

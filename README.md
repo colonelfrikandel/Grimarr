@@ -7,6 +7,7 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 ## Features
 
 - Password-protected responsive web interface: library, queue, activity, settings.
+- Optional **Choose releases manually** setting: search a series, select up to ten results, and track each selected release separately. With this setting off, the best eligible match downloads automatically.
 - Green *arr-style interface using adapted Radarr header, sidebar, toolbar, and loading components, with poster/list views and sorting/filtering.
 - Apple Books/iTunes audiobook catalog search and manual title/author entry.
 - Global and per-book preferences: standard/full-cast/either narration, abridged/unabridged/either, minimum seeders, M4B preference.
@@ -26,6 +27,7 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 - BitTorrent v1 and hybrid torrents are supported. Pure v2 torrents and direct third-party download URLs without a Prowlarr proxy are not supported yet.
 - “On your shelf” means files were imported and an Audiobookshelf scan was requested. Grimarr does not yet confirm indexing or resolve item-specific playback links.
 - Pause monitoring suspends Grimarr's work, not qBittorrent's transfer. Retry resumes the current stage with the same selected release.
+- **Remove book** deletes an entry that has not started downloading, including paused books with no results. Downloading and imported books cannot be removed this way. Activity history is retained; no torrent or media files are deleted.
 - Audio validation checks readable audio streams and positive duration, not a full decode or the book's actual contents.
 
 ## Installation
@@ -121,7 +123,19 @@ These must refer to the same files. Mapping translates paths; it does not transf
 
 Choose your defaults, enable automation, and save. Add a book to search on the next worker cycle (normally within 15 seconds). Books without eligible releases are searched at the configured interval. Service/import errors retry after five minutes, or use **Retry now**.
 
+For manual downloads, turn on **Settings → Profiles → Choose releases manually**. New books wait for your choice. Open a book, edit **Release search** if needed (for example, `Mage Tank` rather than a catalog subtitle), and click **Search download options**. Check one or more results and click **Download selected**. Each choice becomes a separate tracked entry, named after its release; the first replaces the original waiting entry. On a completed book, **Choose more downloads** adds new entries and preserves the existing book. Already tracked releases are rejected. Choices can override automatic title/edition/language/seeder matching, so inspect the displayed warnings. Torrent validation and Audiobook Bay detail verification still apply. A multi-book pack stays a single download; this does not split packs. Results expire after 30 minutes or a server restart; search again if needed. Existing downloads keep progressing when you switch modes. If searching/importing is disabled, selections are queued until it is enabled.
+
 ## Backups and troubleshooting
+
+### Audiobook Bay through Jackett
+
+Add Jackett's **AudioBook Bay** indexer (`https://audiobookbay.lu/`) as a Generic Torznab indexer in Prowlarr, using its per-indexer Torznab URL and API key. Select that Prowlarr indexer ID in Grimarr. Disable RSS for this bridge and use conservative query limits.
+
+Grimarr reads the structured language and abridgement fields from matching Audiobook Bay detail pages and validates the page's public v1 info hash before constructing a magnet. It only contacts HTTPS detail URLs on `audiobookbay.lu`, does not follow redirects, bounds response size/time, spaces requests, and caches results. Up to three plausible detail pages are fetched per search; unavailable or unverified details remain ineligible. No login or paid direct-download links are used.
+
+Jackett's Audiobook Bay seeder count is a placeholder. Grimarr displays it as **unknown**, gives no seeder score, and requires **minimum seeders = 0** to allow those releases. This does not guarantee peers are available. Individual episodes/parts are rejected for whole-book requests, and explicit book numbers must match. Audio Immersion Tunnel editions are treated as dramatized.
+
+Keep automation off while testing the connection and inspecting release reasons. The normal title, author, language, and edition checks still apply; a working indexer does not guarantee a matching release.
 
 Back up the **entire config directory**, including the database and `keys/`. Stop Grimarr while copying SQLite files, or use a SQLite-aware backup. The keys are needed to decrypt saved credentials. Protect access to this folder: its keys and database together can recover credentials.
 
@@ -154,6 +168,7 @@ For frontend development, `npm run dev` in `frontend` proxies API requests to po
 ```bash
 dotnet run --project tests/Grimarr.Tests
 node tests/integration.mjs
+node tests/manual-selection.mjs
 # Install Chromium once: cd frontend && npx playwright install chromium && cd ..
 node tests/ui.mjs
 ```

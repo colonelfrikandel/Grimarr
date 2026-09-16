@@ -51,7 +51,12 @@ api.MapPost("/logout", async (HttpContext context) => { await context.SignOutAsy
 api.MapGet("/settings", (Store store) => PublicSettings(store.Settings()));
 api.MapPut("/settings", async (Settings input, Store store, Workflow workflow, CancellationToken ct) => {
     await workflow.Gate.WaitAsync(ct);
-    try { var settings = Merge(input,store.Settings()); ValidateSettings(settings); store.Save(settings); return Results.Ok(PublicSettings(settings)); }
+    try {
+        var old = store.Settings(); var settings = Merge(input,old); ValidateSettings(settings); store.Save(settings);
+        if (old.ManualSelection != settings.ManualSelection)
+            foreach (var book in store.Books().Where(b=>b.Status=="wanted")) { book.NextSearch=DateTimeOffset.MinValue; store.Save(book); }
+        return Results.Ok(PublicSettings(settings));
+    }
     finally { workflow.Gate.Release(); }
 });
 api.MapPost("/connections/{service}/test", async (string service, Settings input, Store store, Integrations integrations, CancellationToken ct) => {
@@ -80,6 +85,17 @@ api.MapPost("/books", async (BookInput input, Store store, Workflow workflow, Ca
     }
     finally { workflow.Gate.Release(); }
 });
+api.MapDelete("/books/{id}", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
+    await workflow.Gate.WaitAsync(ct);
+    try {
+        var book = store.Books().FirstOrDefault(b => b.Id == id);
+        if (book == null) return Results.NotFound();
+        if (!book.CanRemove) return Results.Conflict(new { error = "This book has started downloading or importing. Pause monitoring instead." });
+        store.Remove(book);
+        return Results.NoContent();
+    }
+    finally { workflow.Gate.Release(); }
+});
 api.MapPost("/books/{id}/retry", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
     await workflow.Gate.WaitAsync(ct);
     try { var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound(); book.NextSearch = DateTimeOffset.MinValue; book.Suspended = false; store.Save(book); return Results.Ok(); }
@@ -95,10 +111,31 @@ api.MapPut("/books/{id}/preferences", async (string id, Preferences preferences,
     try { var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound(); if(book.Status != "wanted") return Results.Conflict(new { error = "An edition has already been selected for this download." }); book = book with { Preferences = preferences, NextSearch = DateTimeOffset.MinValue }; store.Save(book); return Results.Ok(); }
     finally { workflow.Gate.Release(); }
 });
-api.MapGet("/books/{id}/releases", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
-    var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound();
-    var releases = await workflow.Search(book,store.Settings(),ct);
-    return Results.Ok(releases.Select(r => new { release = PublicRelease(r.Release), r.Score, r.Eligible, r.Reasons }));
+api.MapGet("/books/{id}/releases", async (string id, string? q, Store store, Workflow workflow, CancellationToken ct) => {
+    if (q != null && (string.IsNullOrWhiteSpace(q) || q.Length > 500)) return Results.BadRequest(new { error="Enter a search query between 1 and 500 characters." });
+    await workflow.Gate.WaitAsync(ct);
+    try {
+        var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound();
+        var settings = store.Settings();
+        if (settings.ManualSelection && book.Status is "wanted" or "available")
+        {
+            var choices = await workflow.SearchChoices(book,settings,q,ct);
+            return Results.Ok(choices.Select(c => new { c.SelectionId, c.AlreadyTracked, canSelect=!c.AlreadyTracked && Workflow.CanChoose(c.Ranked.Release), release=PublicRelease(c.Ranked.Release), c.Ranked.Score, c.Ranked.Eligible, c.Ranked.Reasons }));
+        }
+        var releases = await workflow.Search(book,settings,ct);
+        return Results.Ok(releases.Select(r => new { release = PublicRelease(r.Release), r.Score, r.Eligible, r.Reasons }));
+    }
+    finally { workflow.Gate.Release(); }
+});
+api.MapPost("/books/{id}/select", async (string id, SelectionInput input, Store store, Workflow workflow, CancellationToken ct) => {
+    if (input.SelectionIds == null) return Results.BadRequest(new { error="Select at least one release." });
+    await workflow.Gate.WaitAsync(ct);
+    try {
+        if (!store.Settings().ManualSelection) return Results.Conflict(new { error="Turn on manual release selection in Settings first." });
+        var book = store.Books().FirstOrDefault(b=>b.Id==id); if(book==null) return Results.NotFound();
+        return Results.Ok((await workflow.Select(book,input.SelectionIds,ct)).Select(PublicBook));
+    }
+    finally { workflow.Gate.Release(); }
 });
 api.MapGet("/activity", (Store store) => store.Activities());
 api.MapGet("/catalog", async (string q, CancellationToken ct) => {
@@ -112,8 +149,8 @@ app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 app.Run();
 
-static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
-static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.Suspended, book.Message, book.Progress, book.TorrentHash, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch };
+static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.SeedersKnown, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
+static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch };
 static object PublicSettings(Settings settings) => new { settings = settings with { Prowlarr = settings.Prowlarr with { ApiKey = "", Password = "" }, Qbittorrent = settings.Qbittorrent with { ApiKey = "", Password = "" }, Audiobookshelf = settings.Audiobookshelf with { ApiKey = "", Password = "" } }, secrets = new { prowlarr = settings.Prowlarr.ApiKey.Length > 0, qbittorrent = settings.Qbittorrent.Password.Length > 0, audiobookshelf = settings.Audiobookshelf.ApiKey.Length > 0 } };
 static Settings Merge(Settings input, Settings old) => input with {
     Prowlarr = input.Prowlarr with { ApiKey = string.IsNullOrEmpty(input.Prowlarr.ApiKey) ? old.Prowlarr.ApiKey : input.Prowlarr.ApiKey },
@@ -140,4 +177,5 @@ static void ValidateSettings(Settings settings)
 }
 record LoginRequest(string Password);
 record BookInput(string Title, string Author, string Cover = "", string CatalogId = "", Preferences? Preferences = null);
+record SelectionInput(string[] SelectionIds);
 public partial class Program { }

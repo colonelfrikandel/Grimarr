@@ -18,6 +18,7 @@ public record Settings
     public Preferences Defaults { get; init; } = new();
     public int SearchIntervalMinutes { get; init; } = 360;
     public bool AutomationEnabled { get; init; }
+    public bool ManualSelection { get; init; }
 }
 public record Book
 {
@@ -36,6 +37,8 @@ public record Book
     public string? ImportedPath { get; set; }
     public DateTimeOffset AddedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset NextSearch { get; set; } = DateTimeOffset.MinValue;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool CanRemove => Status is "wanted" or "queued" && string.IsNullOrEmpty(TorrentHash) && string.IsNullOrEmpty(ImportedPath);
 }
 public record Release
 {
@@ -48,6 +51,8 @@ public record Release
     public string? MagnetUrl { get; init; }
     public string? InfoHash { get; init; }
     public int Seeders { get; init; }
+    public bool SeedersKnown { get; init; } = true;
+    public string? MetadataError { get; init; }
     public long Size { get; init; }
     public string? Language { get; init; }
     public string? Narration { get; init; }
@@ -58,4 +63,5 @@ public record Release
     public string? RatingSource { get; init; }
 }
 public record RankedRelease(Release Release, double Score, bool Eligible, string[] Reasons);
+public record ReleaseChoice(string SelectionId, RankedRelease Ranked, bool AlreadyTracked);
 public record Activity(long Id, DateTimeOffset At, string BookId, string Title, string Message);

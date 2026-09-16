@@ -927,6 +927,18 @@ main {
   margin-bottom: 10px;
   line-height: 1.5;
 }
+.release-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.release-choice input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
 .release small {
   display: block;
   font-size: 12px;

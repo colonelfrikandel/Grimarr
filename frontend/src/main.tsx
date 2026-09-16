@@ -30,6 +30,7 @@ import {
   LoaderCircle,
   LayoutGrid,
   List,
+  Trash2,
 } from "lucide-react";
 import {
   api,
@@ -381,9 +382,11 @@ function App() {
       {add && settings && (
         <AddModal
           defaults={settings.defaults}
+          manualSelection={settings.manualSelection}
           close={() => setAdd(false)}
-          added={async () => {
+          added={async (created) => {
             setAdd(false);
+            if (settings.manualSelection) setSelected(created);
             await refresh();
           }}
         />
@@ -639,12 +642,14 @@ function Modal({
 }
 function AddModal({
   defaults,
+  manualSelection,
   close,
   added,
 }: {
   defaults: Preferences;
+  manualSelection: boolean;
   close: () => void;
-  added: () => Promise<void>;
+  added: (book: Book) => Promise<void>;
 }) {
   const [term, setTerm] = useState(""),
     [results, setResults] = useState<CatalogBook[]>([]),
@@ -737,8 +742,8 @@ function AddModal({
             setBusy(true);
             setError("");
             try {
-              await api("/books", "POST", { ...book, preferences: prefs });
-              await added();
+              const created = await api<Book>("/books", "POST", { ...book, preferences: prefs });
+              await added(created);
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -780,7 +785,7 @@ function AddModal({
             </button>
             <button className="primary" disabled={busy}>
               <Plus size={17} />
-              {busy ? "Adding…" : "Add & download"}
+              {busy ? "Adding…" : manualSelection ? "Add & choose releases" : "Add & download"}
             </button>
           </div>
         </form>
@@ -802,12 +807,16 @@ function BookModal({
   const [releases, setReleases] = useState<Release[] | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [prefs, setPrefs] = useState(book.preferences);
+    [prefs, setPrefs] = useState(book.preferences),
+    [chosen, setChosen] = useState<string[]>([]),
+    [searchQuery, setSearchQuery] = useState(`${book.title.split(":")[0].replace(/\s*\([^)]*\)\s*$/, "").trim()} ${book.author}`);
+  const manual = settings.manualSelection && (book.status === "wanted" || book.status === "available");
   const act = async (path: string, method = "POST", body?: unknown) => {
     setBusy(true);
     setError("");
     try {
       await api(path, method, body);
+      if (method === "DELETE" || path.endsWith("/select")) close();
       await changed();
     } catch (e) {
       setError((e as Error).message);
@@ -840,6 +849,17 @@ function BookModal({
         </>
       )}
       <div className="modal-actions">
+        {book.canRemove && (
+          <button
+            className="secondary"
+            disabled={busy}
+            title="Remove this entry from Grimarr"
+            onClick={() => act(`/books/${book.id}`, "DELETE")}
+          >
+            <Trash2 size={16} />
+            Remove book
+          </button>
+        )}
         <button
           className="secondary"
           disabled={busy}
@@ -872,14 +892,24 @@ function BookModal({
           </a>
         )}
       </div>
+      {manual && (
+        <>
+          <h3>{book.status === "available" ? "Choose more downloads" : "Choose downloads"}</h3>
+          <p className="helper">Search by series name to find other volumes. Select up to 10 releases; each becomes a separate library entry. Your choices override automatic matching rules, so review the titles and warnings.</p>
+          <Field label="Release search">
+            <input value={searchQuery} maxLength={500} onChange={(e) => setSearchQuery(e.target.value)} />
+          </Field>
+        </>
+      )}
       <button
         className="text-button"
-        disabled={busy}
+        disabled={busy || (manual && !searchQuery.trim())}
         onClick={async () => {
           setBusy(true);
           setError("");
           try {
-            setReleases(await api<Release[]>(`/books/${book.id}/releases`));
+            setChosen([]);
+            setReleases(await api<Release[]>(`/books/${book.id}/releases${manual ? `?q=${encodeURIComponent(searchQuery.trim())}` : ""}`));
           } catch (e) {
             setError((e as Error).message);
           } finally {
@@ -887,7 +917,7 @@ function BookModal({
           }
         }}
       >
-        {busy ? "Working…" : "Search releases & inspect ranking"}
+        {busy ? "Working…" : manual ? "Search download options" : "Search releases & inspect ranking"}
         <Search size={16} />
       </button>
       {releases && (
@@ -897,21 +927,39 @@ function BookModal({
           ) : (
             releases.map((r, i) => (
               <div className="release" key={i}>
+                {manual && r.selectionId && (
+                  <label className="release-choice">
+                    <input type="checkbox" aria-label={`Select ${r.release.title}`}
+                      checked={chosen.includes(r.selectionId)}
+                      disabled={busy || !r.canSelect || (!chosen.includes(r.selectionId) && chosen.length >= 10)}
+                      onChange={(e) => setChosen(e.target.checked ? [...chosen, r.selectionId!] : chosen.filter(id => id !== r.selectionId))} />
+                    Select release
+                  </label>
+                )}
                 <strong>{r.release.title}</strong>
                 <span
                   className={"badge " + (r.eligible ? "available" : "wanted")}
                 >
-                  {r.eligible ? `Eligible · ${r.score}` : "Rejected"}
+                  {r.alreadyTracked ? "Already in library" : r.eligible ? `Eligible · ${r.score}` : manual && r.canSelect ? "Review match warnings" : "Rejected"}
                 </span>
                 <small>
                   {r.release.indexer} ·{" "}
                   {(r.release.size / 1024 / 1024).toFixed(0)} MB ·{" "}
-                  {r.release.seeders} seeders
+                  {r.release.seedersKnown === false ? "Seeders unknown" : `${r.release.seeders} seeders`}
                 </small>
                 <p>{r.reasons.join(" · ")}</p>
               </div>
             ))
           )}
+        </div>
+      )}
+      {manual && releases && releases.length > 0 && (
+        <div className="modal-actions">
+          <button className="primary" disabled={busy || chosen.length === 0}
+            onClick={() => act(`/books/${book.id}/select`, "POST", { selectionIds: chosen })}>
+            {busy ? "Checking selections…" : `${settings.automationEnabled ? "Download" : "Queue"} selected (${chosen.length})`}
+          </button>
+          {!settings.automationEnabled && <p className="helper">Downloads are paused. Enable searching and importing in Settings to start queued selections.</p>}
         </div>
       )}
     </Modal>
@@ -1285,6 +1333,14 @@ function SettingsPage({ onSaved }: { onSaved: () => Promise<void> }) {
             />
           </Field>
           <label className="automation-toggle">
+            <input type="checkbox" checked={!!value.manualSelection}
+              onChange={(e) => change("manualSelection", e.target.checked)} />
+            <span>
+              <strong>Choose releases manually</strong>
+              <small>On: new books wait for you to choose one or more downloads. Off: automatically download the best eligible match.</small>
+            </span>
+          </label>
+          <label className="automation-toggle">
             <input
               type="checkbox"
               checked={value.automationEnabled}
@@ -1293,8 +1349,7 @@ function SettingsPage({ onSaved }: { onSaved: () => Promise<void> }) {
             <span>
               <strong>Enable automatic searching and importing</strong>
               <small>
-                Adding a book will trigger selection and download on the next
-                worker cycle.
+                Search and track downloads, import finished books, and scan Audiobookshelf. With manual selection on, new downloads wait for your choice.
               </small>
             </span>
           </label>
