@@ -1,10 +1,10 @@
 # Grimarr
 
-An audiobook manager for your own Docker stack. Add a book, find a matching torrent through Prowlarr, download with qBittorrent, and import into Audiobookshelf.
+A self-hosted audiobook manager for Docker. Search for audiobooks through Prowlarr, download them with qBittorrent, and automatically import completed downloads into Audiobookshelf.
 
-**Early alpha, version 0.1.** The pipeline is tested with simulated services. Compatibility with your live stack still needs verification.
+**Early alpha, version 0.1.** Automated tests cover the download and import pipeline using simulated services. Live-service compatibility testing is still limited.
 
-## Included
+## Features
 
 - Password-protected responsive web interface: library, queue, activity, settings.
 - Green *arr-style interface using adapted Radarr header, sidebar, toolbar, and loading components, with poster/list views and sorting/filtering.
@@ -19,7 +19,7 @@ An audiobook manager for your own Docker stack. Add a book, find a matching torr
 
 ## Current limits
 
-- **Listener-rating integration is not implemented.** The ranking model supports sourced recording ratings and vote counts, but the current adapters do not supply verified recording ratings. The UI reports them as unavailable; no ratings are invented.
+- **Listener ratings are not available yet.** Automatic selection currently uses release matching, edition preferences, format preference, and seeder availability.
 - Matching is strict: all title/author words must match, English must be identified, and the requested abridgement must be identifiable. Poorly labelled releases remain monitored. Inspect rejection reasons on the book's detail screen. Matching is heuristic and cannot guarantee recording identity.
 - No archive extraction, book-pack splitting, conversion, quality upgrades, existing-library adoption, or automatic replacement of failed torrents yet.
 - One managed audiobook per title/author. Preferences are editable while waiting for a release; simultaneous recordings of one book are not supported yet.
@@ -28,16 +28,42 @@ An audiobook manager for your own Docker stack. Add a book, find a matching torr
 - Pause monitoring suspends Grimarr's work, not qBittorrent's transfer. Retry resumes the current stage with the same selected release.
 - Audio validation checks readable audio streams and positive duration, not a full decode or the book's actual contents.
 
-## Ubuntu Docker installation
+## Installation
 
-Clone this repository to your Ubuntu server and work from its directory:
+### Requirements
+
+- A Linux host with Docker Engine and the Docker Compose plugin. The examples below use Ubuntu-compatible shell commands.
+- Git to clone the repository.
+- Running Prowlarr, qBittorrent, and Audiobookshelf instances reachable from the Grimarr container.
+- Filesystem access to completed downloads and the Audiobookshelf library directory.
+
+Grimarr is built from source using the included Dockerfile. The Compose configuration starts Grimarr only; configure the other services separately.
+
+### Download and configure
+
+Clone the repository and create a local environment file:
 
 ```bash
+git clone https://github.com/colonelfrikandel/grimarr.git
+cd grimarr
 cp .env.example .env
 nano .env
 ```
 
-Set a unique `GRIMARR_PASSWORD` of at least 12 characters. Set `PUID`/`PGID` to a user/group with access to your storage (`id -u` / `id -g` show your current IDs).
+Configure these values in `.env`:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `GRIMARR_PASSWORD` | Login password; replace the example with a unique password of at least 12 characters | Must be configured |
+| `PUID` / `PGID` | Container user and group IDs with access to the storage directories | `1000` / `1000` |
+| `GRIMARR_CONFIG_DIR` | Host directory for the database and encryption keys | `./config` |
+| `GRIMARR_DATA_DIR` | Host directory containing downloads and the audiobook library | `/srv/media` |
+| `GRIMARR_BIND_IP` | Host interface on which to expose Grimarr | `127.0.0.1` |
+| `GRIMARR_PORT` | Published web interface port | `8787` |
+
+Use `id -u` and `id -g` to find the current user's IDs, or specify another user/group with the required storage permissions.
+
+### Storage
 
 Set `GRIMARR_DATA_DIR` to a common parent such as `/srv/media`. Create or select two separate, non-nested folders under it:
 
@@ -56,18 +82,20 @@ mkdir -p config
 chmod 700 config
 ```
 
-Choose `GRIMARR_BIND_IP`: `127.0.0.1` (default, Ubuntu host only), your LAN IP, your Tailscale IP, or `0.0.0.0` (all interfaces, for both LAN and Tailscale).
+### Start Grimarr
+
+The default `GRIMARR_BIND_IP=127.0.0.1` permits access from the Docker host only. To access Grimarr from other devices, set it to the host's LAN IP or `0.0.0.0` to listen on all host interfaces. A Tailscale IP can also be used when Tailscale is configured on the host.
 
 ```bash
 docker compose up -d --build
 docker compose logs -f grimarr
 ```
 
-Open `http://YOUR_SERVER_IP:8787` and sign in with your configured password.
+Open `http://localhost:8787` on the Docker host, or `http://SERVER_IP:8787` when listening on a network interface. Sign in with `GRIMARR_PASSWORD`. Substitute the configured port if it differs from `8787`.
 
-The image build needs internet to download dependencies. Catalog/indexer searches contact their upstream services; no public hosting or shared cloud account is required. Fonts/UI assets are bundled locally; catalog covers load from the catalog's image servers.
+The initial build requires internet access to download images and dependencies. Catalog and indexer searches contact their upstream services, and catalog covers load from the catalog's image servers. The web interface assets are served locally.
 
-## Connect your stack
+## Service configuration
 
 In **Settings**, enter and test your service URLs and credentials:
 
@@ -79,7 +107,7 @@ In **Settings**, enter and test your service URLs and credentials:
 
 Test Audiobookshelf to load and select your library. Its internal Docker port is often 80, mapped to host port 13378. Every URL/port is editable.
 
-URLs must be reachable **from Grimarr's container**. `localhost` means the container itself. Docker service names require a shared Docker network; this Compose file can use published LAN/Tailscale addresses without joining that network. If qBittorrent uses a VPN container, use the Web UI address exposed by that setup. Use an Audiobookshelf URL also reachable by your browser for the “Open Audiobookshelf” button.
+URLs must be reachable **from Grimarr's container**. `localhost` means the container itself. Docker service names require a shared Docker network; published host addresses can be used without joining that network. If qBittorrent uses a VPN container, use the Web UI address exposed by that setup. Use an Audiobookshelf URL also reachable by the browser for the “Open Audiobookshelf” button.
 
 Configure the download/library roots, and optionally the save path as seen by qBittorrent. Audiobookshelf must watch the same host library folder Grimarr imports into.
 
@@ -92,8 +120,6 @@ If qBittorrent reports `/downloads/Some Book`, but Grimarr sees `/data/downloads
 These must refer to the same files. Mapping translates paths; it does not transfer files between machines. Symlinks in import paths are rejected; mount the real folder.
 
 Choose your defaults, enable automation, and save. Add a book to search on the next worker cycle (normally within 15 seconds). Books without eligible releases are searched at the configured interval. Service/import errors retry after five minutes, or use **Retry now**.
-
-Your friend can clone the same repository and provide their own `.env`, mounts, connections, and preferences. Each installation is independent.
 
 ## Backups and troubleshooting
 
@@ -132,7 +158,7 @@ node tests/integration.mjs
 node tests/ui.mjs
 ```
 
-The integration test starts temporary loopback mock services and the real backend. It exercises authentication, search/download, restarts, imports, and scan recovery without contacting your stack or downloading real torrents. Build the Debug backend first. `DOTNET_EXE` and `FFPROBE_DIR` can override tool paths.
+The integration test starts temporary loopback mock services and the real backend. It exercises authentication, search/download, restarts, imports, and scan recovery without contacting configured services or downloading real torrents. Build the Debug backend first. `DOTNET_EXE` and `FFPROBE_DIR` can override tool paths.
 
 ## Code map
 
