@@ -1,0 +1,19 @@
+services:
+  grimarr:
+    build: .
+    container_name: grimarr
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "${GRIMARR_BIND_IP:-127.0.0.1}:${GRIMARR_PORT:-8787}:8787"
+    environment:
+      GRIMARR_PASSWORD: "${GRIMARR_PASSWORD:?Set a password of at least 12 characters in .env}"
+      GRIMARR_CONFIG: /config
+    volumes:
+      - "${GRIMARR_CONFIG_DIR:-./config}:/config"
+      # Mount the common parent once so downloads and library can use hardlinks.
+      - "${GRIMARR_DATA_DIR:-/srv/media}:/data"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

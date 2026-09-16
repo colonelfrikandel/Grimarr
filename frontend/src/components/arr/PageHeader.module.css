@@ -1,0 +1,149 @@
+/* Adapted from Radarr; see THIRD_PARTY_NOTICES.md. */
+.header {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 60px;
+  background-color: var(--pageHeaderBackgroundColor);
+  color: var(--white);
+}
+
+.logoContainer {
+  display: flex;
+  align-items: center;
+  flex: 0 0 210px;
+  padding-left: 20px;
+}
+
+.logoLink {
+  line-height: 0;
+}
+
+.logoFull,
+.logo {
+  vertical-align: middle;
+}
+
+.logoFull {
+  margin-left: 15px;
+  width: 120px;
+  height: 40px;
+}
+
+.logo {
+  width: 32px;
+  height: 32px;
+}
+
+.sidebarToggleContainer {
+  display: none;
+  justify-content: center;
+  flex: 0 0 45px;
+  margin-right: 14px;
+}
+
+.right {
+  display: flex;
+  justify-content: flex-end;
+  flex-grow: 1;
+}
+
+.translate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  color: #fff;
+  text-align: center;
+  line-height: 60px;
+
+  &:hover {
+    color: var(--toobarButtonHoverColor);
+  }
+}
+
+.donate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  color: var(--themeRed);
+  text-align: center;
+  line-height: 60px;
+
+  &:hover {
+    color: #9c1f30;
+  }
+}
+
+@media only screen and (max-width: 650px) {
+  .logoContainer {
+    flex: 0 0 60px;
+  }
+
+  .sidebarToggleContainer {
+    display: flex;
+  }
+}
+
+@media only screen and (max-width: 400px) {
+  .donate,
+  .translate {
+    display: none;
+  }
+}
+
+.header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  padding-right: 20px;
+}
+.logoLink {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: var(--themeBlue);
+  font-size: 23px;
+  font-weight: bold;
+  line-height: normal;
+}
+.logo {
+  width: 29px;
+  height: 29px;
+}
+.right {
+  align-items: center;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .logoContainer {
+    flex-basis: 170px;
+    padding-left: 14px;
+  }
+  .logoLink {
+    font-size: 20px;
+  }
+}
+@media (max-width: 650px) {
+  .header {
+    height: 54px;
+    padding-right: 8px;
+  }
+  .logoContainer {
+    flex-basis: 128px;
+    padding-left: 10px;
+  }
+  .logoLink {
+    font-size: 17px;
+    gap: 7px;
+  }
+  .logo {
+    width: 23px;
+    height: 23px;
+  }
+  .right {
+    flex-grow: 0;
+  }
+}

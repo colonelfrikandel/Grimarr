@@ -1,0 +1,10 @@
+.git
+.tools
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/wwwroot
+config
+.env
+test-results

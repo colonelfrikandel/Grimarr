@@ -1,0 +1,27 @@
+name: Build and verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: dotnet run --project tests/Grimarr.Tests
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - run: mkdir -p src/Grimarr/wwwroot && cp -r frontend/dist/. src/Grimarr/wwwroot/
+      - run: node tests/integration.mjs
+      - run: npx playwright install chromium --with-deps
+        working-directory: frontend
+      - run: node tests/ui.mjs
+      - run: docker build -t grimarr:ci .

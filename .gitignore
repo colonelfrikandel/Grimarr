@@ -1,0 +1,12 @@
+.tools/
+**/bin/
+**/obj/
+**/node_modules/
+frontend/dist/
+src/Grimarr/wwwroot/
+config/
+.env
+*.user
+*.log
+test-results/
+*.tsbuildinfo
