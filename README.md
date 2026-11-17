@@ -152,6 +152,8 @@ Failed Quick Add releases wait for **Retry this release**, or an explicit **Sear
 
 Before a new Prowlarr or Quick Add download, Grimarr checks every page of the selected Audiobookshelf library for possible existing audiobooks. Matching normalizes title punctuation and accents, preserves volume numbers, and treats subtitle variants or uncertain authors as review candidates. It does not identify a recording's language, narration, or abridgement from its title. Library outages or incomplete responses hold the new download for retry instead of assuming the book is absent.
 
+The current check supports up to 20,000 items. Larger or incomplete library responses hold the download instead of silently skipping part of the library.
+
 **Review existing book** holds acquisition until you choose **Use this existing audiobook**, **Download another copy**, or **Check Audiobookshelf again**. Selecting an existing item rechecks its availability and saves a reference without importing, adopting files, or starting a torrent. Downloading another copy is an explicit override for that book and selected library. Changing libraries requires a fresh check. Retry and resume do not dismiss a warning.
 
 If your Grimarr library root corresponds to a subfolder of the Audiobookshelf library, or that library has multiple folders, set **Media Management → Audiobookshelf library path** to the same root as Audiobookshelf sees it (for example `/audiobooks/grimarr`). Index confirmation then checks that exact remote directory. With this blank, the relative directories in the two library roots must agree.
