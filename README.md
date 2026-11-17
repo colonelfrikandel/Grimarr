@@ -8,11 +8,12 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 
 - Password-protected responsive web interface: library, queue, activity, settings.
 - Optional **Choose releases manually** setting: search a series, select up to ten results, and track each selected release separately. With this setting off, the best eligible match downloads automatically.
-- Green *arr-style interface using adapted Radarr header, sidebar, toolbar, and loading components, with poster/list views and sorting/filtering.
+- Seerr-inspired dark media interface with poster/list views, sorting, filtering, and responsive navigation.
 - Apple Books/iTunes audiobook catalog search and manual title/author entry.
 - Global and per-book preferences: standard/full-cast/either narration, abridged/unabridged/either, minimum seeders, M4B preference.
 - Automatic Prowlarr search (audiobook category 3030), ranked selection, and scheduled searches for missing books.
 - qBittorrent submission, progress tracking, and restart recovery without duplicate torrents.
+- Persistent failed-release blocklist, same-release retries, replacement searches, and opt-in automatic failed-download recovery.
 - Editable service URLs, credentials, indexer IDs, storage roots, and remote path mappings.
 - ffprobe audio checks, hardlink/copy imports, and atomic library imports. Original download files remain untouched for seeding.
 - Audiobookshelf library selection and retryable scan requests.
@@ -22,11 +23,11 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 
 - **Listener ratings are not available yet.** Automatic selection currently uses release matching, edition preferences, format preference, and seeder availability.
 - Matching is strict: all title/author words must match, English must be identified, and the requested abridgement must be identifiable. Poorly labelled releases remain monitored. Inspect rejection reasons on the book's detail screen. Matching is heuristic and cannot guarantee recording identity.
-- No archive extraction, book-pack splitting, conversion, quality upgrades, existing-library adoption, or automatic replacement of failed torrents yet.
+- No archive extraction, book-pack splitting, conversion, quality upgrades, or existing-library adoption yet.
 - One managed audiobook per title/author. Preferences are editable while waiting for a release; simultaneous recordings of one book are not supported yet.
 - BitTorrent v1 and hybrid torrents are supported. Pure v2 torrents and direct third-party download URLs without a Prowlarr proxy are not supported yet.
 - “On your shelf” means files were imported and an Audiobookshelf scan was requested. Grimarr does not yet confirm indexing or resolve item-specific playback links.
-- Pause monitoring suspends Grimarr's work, not qBittorrent's transfer. Retry resumes the current stage with the same selected release.
+- Pause monitoring suspends Grimarr's work, not qBittorrent's transfer. Retry resumes the current stage with the same selected release; replacement searches exclude blocked failures.
 - **Remove book** deletes an entry that has not started downloading, including paused books with no results. Downloading and imported books cannot be removed this way. Activity history is retained; no torrent or media files are deleted.
 - Audio validation checks readable audio streams and positive duration, not a full decode or the book's actual contents.
 
@@ -125,6 +126,20 @@ Choose your defaults, enable automation, and save. Add a book to search on the n
 
 For manual downloads, turn on **Settings → Profiles → Choose releases manually**. New books wait for your choice. Open a book, edit **Release search** if needed (for example, `Mage Tank` rather than a catalog subtitle), and click **Search download options**. Check one or more results and click **Download selected**. Each choice becomes a separate tracked entry, named after its release; the first replaces the original waiting entry. On a completed book, **Choose more downloads** adds new entries and preserves the existing book. Already tracked releases are rejected. Choices can override automatic title/edition/language/seeder matching, so inspect the displayed warnings. Torrent validation and Audiobook Bay detail verification still apply. A multi-book pack stays a single download; this does not split packs. Results expire after 30 minutes or a server restart; search again if needed. Existing downloads keep progressing when you switch modes. If searching/importing is disabled, selections are queued until it is enabled.
 
+### Failed downloads and import recovery
+
+Missing torrents get a two-minute confirmation window before becoming **Download failed**. qBittorrent `error` and `missingFiles` states also fail explicitly. Active downloads with no progress fail after **Settings → Profiles → Stall timeout** (default 1440 minutes). Set this to 0 to disable, or 15–10080 minutes. Paused/stopped, queued, checking, moving, and allocating torrents do not count toward the stall timer. Service outages retry without blocking a release.
+
+Open a failed book to choose:
+
+- **Retry this release:** remove its block and reconnect to the existing torrent, or resubmit the same release if it is missing.
+- **Search for replacement:** return the book to monitoring while retaining blocked-release history. Automatic mode chooses the next eligible release; manual mode waits for your selection.
+- **Clear failed-release blocklist:** allow previously failed releases again while retaining failure history.
+
+**Automatically replace failed downloads** is off by default. Enable it in Profiles to search for alternatives after a missing, errored, or stalled download. Manual selection and paused monitoring still require user action. Recovery never removes torrents or their files; old transfers can continue consuming space and bandwidth until you manage them in qBittorrent.
+
+Completed downloads enter a separate import stage. Invalid audio or storage errors show **Import needs attention**; fix the files, permissions, free space, or mappings and click **Retry import**. Import retries use the saved completed-download path, even if the torrent was removed. Private staging folders are rebuilt on retry, and a completed atomic import can be recovered after a restart. Audiobookshelf scan failures retain the import and retry separately.
+
 ## Backups and troubleshooting
 
 ### Audiobook Bay through Jackett
@@ -144,7 +159,7 @@ Back up the **entire config directory**, including the database and `keys/`. Sto
 - **Files not found:** check Docker mounts and path mappings.
 - **Access denied:** the container UID/GID must read downloads and write the library and its parent.
 - **Imported but not visible:** verify Audiobookshelf watches the same host folder. Scan failures preserve imports and retry separately.
-- **Torrent missing/error:** resolve in qBittorrent and retry in Grimarr. Grimarr does not delete or replace torrents automatically.
+- **Torrent missing/error:** retry the same release or search for a replacement. Automatic replacement is opt-in; torrents and files are never deleted by recovery.
 
 ## Development and tests
 
@@ -169,11 +184,12 @@ For frontend development, `npm run dev` in `frontend` proxies API requests to po
 dotnet run --project tests/Grimarr.Tests
 node tests/integration.mjs
 node tests/manual-selection.mjs
+node tests/recovery.mjs
 # Install Chromium once: cd frontend && npx playwright install chromium && cd ..
 node tests/ui.mjs
 ```
 
-The integration test starts temporary loopback mock services and the real backend. It exercises authentication, search/download, restarts, imports, and scan recovery without contacting configured services or downloading real torrents. Build the Debug backend first. `DOTNET_EXE` and `FFPROBE_DIR` can override tool paths.
+The integration tests start temporary loopback mock services and the real backend. They exercise authentication, search/download, deleted/errored/stalled torrents, replacement and blocklist controls, restarts, imports, and scan recovery without contacting configured services or downloading real torrents. Build the Debug backend first. Backend import checks require `ffprobe` on PATH; Node integration tests also accept `FFPROBE_DIR`. `DOTNET_EXE` can override the .NET executable. See [RELEASE_STATUS.md](RELEASE_STATUS.md) for verification results and remaining release blockers.
 
 ## Code map
 
@@ -187,6 +203,4 @@ The integration test starts temporary loopback mock services and the real backen
 | `src/Grimarr/Store.cs` | SQLite and secret protection |
 | `frontend/src/` | React/TypeScript interface |
 
-Inspired by [Radarr](https://github.com/Radarr/Radarr) and [Sonarr](https://github.com/Sonarr/Sonarr). Independent of Servarr. See [LICENSE](LICENSE) for GPL-3.0 terms.
-
-The frontend reuses selected Radarr presentation components, adapted to Grimarr's API and audiobook data. Source revision, file provenance, and modifications are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Grimarr is independent of Servarr. See [LICENSE](LICENSE) for GPL-3.0 terms.

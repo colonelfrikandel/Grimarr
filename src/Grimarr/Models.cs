@@ -19,6 +19,8 @@ public record Settings
     public int SearchIntervalMinutes { get; init; } = 360;
     public bool AutomationEnabled { get; init; }
     public bool ManualSelection { get; init; }
+    public bool AutomaticFailedDownloadRecovery { get; init; }
+    public int StallTimeoutMinutes { get; init; } = 1440;
 }
 public record Book
 {
@@ -35,11 +37,19 @@ public record Book
     public string? TorrentHash { get; set; }
     public Release? SelectedRelease { get; set; }
     public string? ImportedPath { get; set; }
+    public string? DownloadPath { get; set; }
+    public string? FailureReason { get; set; }
+    public DateTimeOffset? MissingSince { get; set; }
+    public DateTimeOffset? LastProgressAt { get; set; }
+    public DateTimeOffset? LastDownloadCheck { get; set; }
+    public List<FailedRelease> FailedReleases { get; init; } = [];
     public DateTimeOffset AddedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset NextSearch { get; set; } = DateTimeOffset.MinValue;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool CanRemove => Status is "wanted" or "queued" && string.IsNullOrEmpty(TorrentHash) && string.IsNullOrEmpty(ImportedPath);
 }
+// Never retain private download URLs in failure history.
+public record FailedRelease(string Guid, int IndexerId, string? InfoHash, string Title, string Reason, DateTimeOffset At, bool Blocked = true);
 public record Release
 {
     public string Guid { get; init; } = "";

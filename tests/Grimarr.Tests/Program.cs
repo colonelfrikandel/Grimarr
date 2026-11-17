@@ -59,6 +59,22 @@ Check("Rating source required",Ranking.Rank(book,release with { ListenerRating=5
 Check("Verified rating contributes",Ranking.Rank(book,release with { ListenerRating=5,RatingCount=1000,RatingSource="fixture" }).Score>Ranking.Rank(book,release).Score);
 Check("Small rating sample weighted down",Ranking.Rank(book,release with { ListenerRating=5,RatingCount=1,RatingSource="fixture" }).Score<Ranking.Rank(book,release with { ListenerRating=4.5,RatingCount=100,RatingSource="fixture" }).Score);
 var hash=new string('a',40);
+var now=DateTimeOffset.UtcNow;
+Book Stalled() => new() { Progress=0.4, LastProgressAt=now.AddMinutes(-16), LastDownloadCheck=now.AddSeconds(-15) };
+Check("Active download without progress reaches stall timeout",Workflow.ObserveStall(Stalled(),"stalledDL",0.4,now,15));
+Check("New progress resets stall timer",!Workflow.ObserveStall(Stalled(),"downloading",0.5,now,15));
+foreach(var state in new[] { "pausedDL","stoppedDL","queuedDL","checkingDL","moving","allocating" })
+    Check(state+" does not fail as stalled",!Workflow.ObserveStall(Stalled(),state,0.4,now,15));
+Check("Stall detection can be disabled",!Workflow.ObserveStall(Stalled(),"downloading",0.4,now,0));
+Check("Service outage or downtime resets stall clock",!Workflow.ObserveStall(Stalled() with { LastDownloadCheck=now.AddMinutes(-5) },"downloading",0.4,now,15));
+Check("Slow configured polling still detects stalls",Workflow.ObserveStall(Stalled() with { LastDownloadCheck=now.AddMinutes(-5) },"downloading",0.4,now,15,600));
+Check("Old book without timing fields starts a fresh stall clock",!Workflow.ObserveStall(new Book(),"downloading",0,now,15));
+Check("Completed download never stalls",!Workflow.ObserveStall(Stalled(),"stalledDL",1,now,15));
+var failed=new FailedRelease("original",1,hash,"Fixture","Missing",now);
+Check("Blocklist identifies same hash across indexers",Workflow.SameRelease(failed,new Release { Guid="other",IndexerId=2,InfoHash=hash.ToUpperInvariant() }));
+Check("Blocklist identifies same release without hash",Workflow.SameRelease(failed,new Release { Guid="original",IndexerId=1 }));
+Check("Blocklist does not block unrelated release",!Workflow.SameRelease(failed,new Release { Guid="other",IndexerId=1,InfoHash=new string('b',40) }));
+Check("Missing indexer identifiers cannot block unrelated torrents",!Workflow.SameRelease(failed with { Guid="",IndexerId=0 },new Release { InfoHash=new string('b',40) }));
 Check("Magnet hash normalized",TorrentIdentity.MagnetHash("magnet:?xt=urn:btih:"+hash.ToUpper()+"&dn=book")==hash);
 Check("Base32 magnet supported",TorrentIdentity.MagnetHash("magnet:?xt=urn:btih:"+new string('A',32))==new string('0',40));
 Throws("Malformed magnet rejected",()=>TorrentIdentity.MagnetHash("magnet:?xt=urn:btih:bad"));
@@ -81,6 +97,25 @@ try
     var store=new Store(config,provider);store.Save(settings with { Prowlarr=new("http://localhost:9696","fixture-secret") });store.Save(book with { SelectedRelease=release with { DownloadUrl="http://localhost/download?apikey=private-download-key" } });
     var reopened=new Store(config,provider);
     Check("Books survive store restart",reopened.Books().Single().Id==book.Id);
+    var failureBook=book with { Status="download-failed", SelectedRelease=release, TorrentHash=hash, FailedReleases=[failed] };
+    reopened.Save(failureBook);
+    using(var integrations=new Integrations())
+    {
+        var workflow=new Workflow(reopened,integrations,new Importer());
+        var persisted=reopened.Books().Single();
+        Check("Failure and blocklist survive store restart",persisted.Status=="download-failed" && persisted.FailedReleases.Single().Blocked);
+        workflow.Retry(persisted);
+        Check("Retry same release retains identity and unblocks history",persisted.Status=="queued" && persisted.TorrentHash==hash && !persisted.FailedReleases.Single().Blocked);
+        persisted.Status="download-failed"; persisted.FailedReleases[0]=failed;
+        workflow.Replace(persisted);
+        var replaced=new Store(config,provider).Books().Single();
+        Check("Replacement reset and blocklist persist together",replaced.Status=="wanted" && replaced.TorrentHash==null && replaced.SelectedRelease==null && replaced.FailedReleases.Single().Blocked);
+        Throws("Replacement cannot bypass import recovery",()=>workflow.Replace(persisted with { Status="import-failed" }));
+        var pending=persisted with { Status="import-failed", DownloadPath="/remote/book", TorrentHash=hash };
+        workflow.Retry(pending);
+        Check("Import retry keeps completed source without requeuing torrent",pending.Status=="import-pending" && pending.DownloadPath=="/remote/book" && pending.TorrentHash==hash);
+    }
+    reopened.Save(book with { SelectedRelease=release with { DownloadUrl="http://localhost/download?apikey=private-download-key" } });
     var removable = new Book { Title="No results", Author="Fixture", Suspended=true };
     reopened.Save(removable); reopened.Remove(removable);
     Check("Removed waiting book stays removed after restart",!new Store(config,provider).Books().Any(b=>b.Id==removable.Id));
@@ -97,4 +132,5 @@ try
     using(var db=new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(root,"grimarr.db")}")) {db.Open();using var cmd=db.CreateCommand();cmd.CommandText="SELECT json FROM books";Check("Download credential not stored in plaintext",!((string)cmd.ExecuteScalar()!).Contains("private-download-key"));}
 }
 finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root,true); }
+await ImportChecks.Run(Check);
 Console.WriteLine($"\n{passed} checks passed.");

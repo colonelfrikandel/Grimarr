@@ -44,6 +44,7 @@ public sealed class Importer
     }
     public async Task<string> Import(Settings settings, Book book, string remotePath, CancellationToken ct)
     {
+        if (!Guid.TryParseExact(book.Id,"N",out _)) throw new InvalidOperationException("Invalid import identity.");
         var source = MapPath(settings, remotePath); NoLinks(source); NoLinks(settings.LibraryRoot);
         if(!Directory.Exists(settings.LibraryRoot)) throw new InvalidOperationException("Library root does not exist. Check the Docker volume and Settings.");
         var final = Under(settings.LibraryRoot, Path.Combine(settings.LibraryRoot, Segment(book.Author), Segment(book.Title) + " [" + book.Id[..8] + "]"));
@@ -51,24 +52,33 @@ public sealed class Importer
         if(Directory.Exists(final))
         {
             var manifest = Path.Combine(final, ".grimarr.json");
-            if(File.Exists(manifest) && (await File.ReadAllTextAsync(manifest, ct)).Contains(book.Id, StringComparison.Ordinal)) return final;
+            NoLinks(manifest);
+            if(File.Exists(manifest))
+            {
+                using var json=JsonDocument.Parse(await File.ReadAllTextAsync(manifest,ct));
+                var owned=json.RootElement.TryGetProperty("id",out var id) && id.GetString()==book.Id
+                    && json.RootElement.TryGetProperty("torrentHash",out var hash) && hash.GetString()==book.TorrentHash;
+                if (owned)
+                {
+                    // A completed atomic move may precede a crash before the database save.
+                    var recovered=SafeFiles(final).Where(p=>AudioExtensions.Contains(Path.GetExtension(p))).ToList();
+                    if (recovered.Count==0) throw new InvalidOperationException("Existing import has no audio. Review the destination before retrying.");
+                    foreach(var file in recovered) await ValidateAudio(file,ct);
+                    return final;
+                }
+            }
             throw new InvalidOperationException("Destination already exists and is not owned by this import.");
         }
         if(!File.Exists(source) && !Directory.Exists(source)) throw new InvalidOperationException("Completed download is not visible to Grimarr. Check path mappings.");
         if (Directory.Exists(source) && Path.GetFullPath(final).StartsWith(Path.GetFullPath(source).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new InvalidOperationException("Library must not be inside the downloaded book folder.");
         // Stage alongside the library, on the same filesystem, outside the ABS library watcher.
         var parent = Directory.GetParent(Path.GetFullPath(settings.LibraryRoot))?.FullName ?? throw new InvalidOperationException("Library root cannot be the filesystem root.");
-        var stage = Path.Combine(parent, ".grimarr-staging", book.Id); NoLinks(stage); Directory.CreateDirectory(stage);
-        var paths = new List<string>();
-        void Walk(string directory)
-        {
-            foreach(var entry in Directory.EnumerateFileSystemEntries(directory))
-            {
-                NoLinks(entry);
-                if(Directory.Exists(entry)) Walk(entry); else paths.Add(entry);
-            }
-        }
-        if(File.Exists(source)) paths.Add(source); else Walk(source);
+        var stagingRoot=Path.Combine(parent,".grimarr-staging");
+        var stage = Under(stagingRoot,Path.Combine(stagingRoot,book.Id)); NoLinks(stage);
+        // Never reuse partial copies or files no longer present in the source on a retry.
+        if (Directory.Exists(stage)) { _=SafeFiles(stage).ToList(); Directory.Delete(stage,true); }
+        Directory.CreateDirectory(stage);
+        var paths = File.Exists(source) ? new List<string> { source } : SafeFiles(source).ToList();
         var audio = paths.Where(p => AudioExtensions.Contains(Path.GetExtension(p))).ToList();
         if(audio.Count == 0) throw new InvalidOperationException("No supported audio files found. Archives must be unpacked manually.");
         foreach(var file in audio) await ValidateAudio(file, ct);
@@ -92,6 +102,16 @@ public sealed class Importer
         Directory.CreateDirectory(Path.GetDirectoryName(final)!); Directory.Move(stage,final);
         return final;
     }
+    private static IEnumerable<string> SafeFiles(string directory)
+    {
+        NoLinks(directory);
+        foreach(var entry in Directory.EnumerateFileSystemEntries(directory))
+        {
+            NoLinks(entry);
+            if(Directory.Exists(entry)) { foreach(var file in SafeFiles(entry)) yield return file; }
+            else yield return entry;
+        }
+    }
     private static async Task ValidateAudio(string path, CancellationToken ct)
     {
         var info = new ProcessStartInfo("ffprobe") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
@@ -104,8 +124,9 @@ public sealed class Importer
             await process.WaitForExitAsync(timeout.Token); await errors;
             using var json = JsonDocument.Parse(await output);
             if(process.ExitCode != 0 || !json.RootElement.TryGetProperty("streams",out var streams) || streams.GetArrayLength() == 0) throw new InvalidOperationException("A downloaded file has no readable audio stream.");
-            if(!json.RootElement.TryGetProperty("format",out var format) || !format.TryGetProperty("duration",out var duration) || !double.TryParse(duration.GetString(), System.Globalization.CultureInfo.InvariantCulture, out var seconds) || seconds <= 0) throw new InvalidOperationException("A downloaded audio file has no valid duration.");
+            if(!json.RootElement.TryGetProperty("format",out var format) || !format.TryGetProperty("duration",out var duration) || !double.TryParse(duration.GetString(), System.Globalization.CultureInfo.InvariantCulture, out var seconds) || !double.IsFinite(seconds) || seconds <= 0) throw new InvalidOperationException("A downloaded audio file has no valid duration.");
         }
+        catch(OperationCanceledException) when(!ct.IsCancellationRequested) { throw new InvalidOperationException("Audio validation timed out. Check the downloaded file."); }
         finally { if(!process.HasExited) process.Kill(true); }
     }
 }

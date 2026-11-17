@@ -82,8 +82,12 @@ try {
   assert(setup.ok());
   await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('checkbox', { name: /Choose releases manually/ }).check();
+  await page.getByRole('checkbox', { name: /Automatically replace failed downloads/ }).check();
+  await page.getByLabel('Stall timeout (minutes)', { exact:true }).fill('60');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).settings.manualSelection === true);
+  assert.equal((await (await page.request.get('http://127.0.0.1:8787/api/settings')).json()).settings.stallTimeoutMinutes,60);
+  assert.equal((await (await page.request.get('http://127.0.0.1:8787/api/settings')).json()).settings.automaticFailedDownloadRecovery,true);
   await page.getByRole('button', { name: 'Library', exact: true }).click();
   await page.getByRole('button', { name: 'Add audiobook', exact: true }).first().click();
   await page.getByRole('button', { name: 'Add by title and author' }).click();
@@ -108,6 +112,43 @@ try {
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).settings.manualSelection === false);
   console.log('PASS: Manual setting on/off, series query, five options, multi-selection, submission and mobile layout.');
+  let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,
+    message:'Torrent is missing from qBittorrent.',preferences:stored.defaults,selectedRelease:{title:'Failed release'},
+    failedReleases:[{title:'Failed release',reason:'Torrent is missing from qBittorrent.',at:new Date().toISOString(),blocked:true}]};
+  const actions=[];
+  await page.route('**/api/books',route=>route.fulfill({json:[fixture]}));
+  await page.route('**/api/books/recovery-ui/*',route=>{
+    const action=route.request().url().split('/').at(-1);actions.push(action);
+    if(action==='clear-blocklist') fixture={...fixture,failedReleases:fixture.failedReleases.map(f=>({...f,blocked:false}))};
+    if(action==='replace') fixture={...fixture,status:'wanted'};
+    if(action==='retry') fixture={...fixture,status:fixture.status==='import-failed'?'import-pending':'downloading'};
+    return route.fulfill({json:{}});
+  });
+  await page.getByRole('button', { name:'Library',exact:true }).click();
+  await page.reload();
+  await page.getByRole('button',{name:/Recovery fixture.*Download failed/}).click();
+  await page.getByRole('heading',{name:'Failed releases',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Search for replacement',exact:true}).waitFor();
+  await page.screenshot({path:'test-results/recovery-mobile.png',fullPage:true});
+  assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)),'Recovery details overflow on mobile');
+  await page.getByRole('button',{name:'Clear failed-release blocklist',exact:true}).click();
+  await page.getByRole('button',{name:'Clear failed-release blocklist',exact:true}).waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Retry this release',exact:true}).click();
+  await page.getByRole('button',{name:'Retry this release',exact:true}).waitFor({state:'hidden'});
+  assert.deepEqual(actions,['clear-blocklist','retry']);
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  fixture={...fixture,status:'download-failed'};await page.reload();
+  await page.getByRole('button',{name:/Recovery fixture.*Download failed/}).click();
+  await page.getByRole('button',{name:'Search for replacement',exact:true}).click();
+  await page.getByRole('button',{name:'Search for replacement',exact:true}).waitFor({state:'hidden'});
+  assert.equal(actions.at(-1),'replace');
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  fixture={...fixture,status:'import-failed',message:'Storage access denied.'};await page.reload();
+  await page.getByRole('button',{name:/Recovery fixture.*Import needs attention/}).click();
+  assert.equal(await page.getByRole('button',{name:'Search for replacement',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Retry import',exact:true}).click();
+  await page.getByRole('button',{name:'Retry import',exact:true}).waitFor({state:'hidden'});
+  console.log('PASS: Recovery settings persist; failure history, clear blocklist, retry release, replace and retry import controls work on mobile.');
   assert.deepEqual(errors, [], 'Browser runtime errors');
   console.log('PASS: Browser login, navigation, settings, add book, saved edition preference, poster/list switching, sort/filter controls, activity, and mobile layout. No runtime errors.');
 } catch (error) {

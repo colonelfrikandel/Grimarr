@@ -42,11 +42,11 @@ import {
   type Activity,
 } from "./api";
 import "./style.css";
-import PageHeader from "./components/arr/PageHeader";
-import PageSidebarItem from "./components/arr/PageSidebarItem";
-import PageToolbar from "./components/arr/PageToolbar";
-import PageToolbarButton from "./components/arr/PageToolbarButton";
-import LoadingIndicator from "./components/arr/LoadingIndicator";
+import PageHeader from "./components/shell/PageHeader";
+import PageSidebarItem from "./components/shell/PageSidebarItem";
+import PageToolbar from "./components/shell/PageToolbar";
+import PageToolbarButton from "./components/shell/PageToolbarButton";
+import LoadingIndicator from "./components/shell/LoadingIndicator";
 
 type Page = "library" | "queue" | "activity" | "settings";
 function App() {
@@ -98,7 +98,7 @@ function App() {
     );
   if (!session) return <Login onLogin={() => setSession(true)} />;
   const downloading = books.filter((b) =>
-    ["queued", "downloading", "scan-pending"].includes(b.status),
+    ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending"].includes(b.status),
   );
   const visible = books
     .filter(
@@ -112,7 +112,7 @@ function App() {
             ? !b.suspended
             : filter === "available"
               ? b.status === "available"
-              : ["queued", "downloading", "scan-pending"].includes(b.status))),
+              : ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending"].includes(b.status))),
     )
     .sort((a, b) =>
       sort === "author"
@@ -409,6 +409,9 @@ function statusLabel(status: string) {
         wanted: "Monitored",
         queued: "Queued",
         downloading: "Downloading",
+        "download-failed": "Download failed",
+        "import-pending": "Importing",
+        "import-failed": "Import needs attention",
         "scan-pending": "Import complete",
         available: "On your shelf",
       } as Record<string, string>
@@ -849,6 +852,11 @@ function BookModal({
         </>
       )}
       <div className="modal-actions">
+        {book.status === "download-failed" && (
+          <button className="primary" disabled={busy} onClick={() => act(`/books/${book.id}/replace`)}>
+            Search for replacement
+          </button>
+        )}
         {book.canRemove && (
           <button
             className="secondary"
@@ -877,7 +885,7 @@ function BookModal({
             onClick={() => act(`/books/${book.id}/retry`)}
           >
             <RotateCw size={16} />
-            Retry now
+            {book.status === "download-failed" ? "Retry this release" : book.status === "import-failed" ? "Retry import" : "Retry now"}
           </button>
         )}
         {book.status === "available" && (
@@ -892,6 +900,22 @@ function BookModal({
           </a>
         )}
       </div>
+      {!!book.failedReleases?.length && (
+        <section>
+          <h3>Failed releases</h3>
+          <p className="helper">Blocked releases are excluded from future choices. Existing torrents and files stay in qBittorrent and on disk.</p>
+          {book.failedReleases.map((failed, index) => (
+            <div className="detail-state" key={index}>
+              <strong>{failed.title}</strong>
+              <p>{failed.reason}</p>
+              <small>{failed.blocked ? "Blocked" : "Unblocked"} · {new Date(failed.at).toLocaleString()}</small>
+            </div>
+          ))}
+          {book.failedReleases.some(failed => failed.blocked) && (
+            <button className="secondary" disabled={busy} onClick={() => act(`/books/${book.id}/clear-blocklist`)}>Clear failed-release blocklist</button>
+          )}
+        </section>
+      )}
       {manual && (
         <>
           <h3>{book.status === "available" ? "Choose more downloads" : "Choose downloads"}</h3>
@@ -1331,6 +1355,16 @@ function SettingsPage({ onSaved }: { onSaved: () => Promise<void> }) {
                 change("searchIntervalMinutes", Number(e.target.value))
               }
             />
+          </Field>
+          <label className="automation-toggle">
+            <input type="checkbox" checked={value.automaticFailedDownloadRecovery} onChange={(e) => change("automaticFailedDownloadRecovery", e.target.checked)} />
+            <span>
+              <strong>Automatically replace failed downloads</strong>
+              <small>Block missing, errored, or stalled releases and search for alternatives. Manual selection still requires your choice. Existing torrents and files are retained.</small>
+            </span>
+          </label>
+          <Field label="Stall timeout (minutes)" help="Fail an actively tracked download after this long without progress. Use 0 to disable, or 15–10080. Paused and queued torrents are excluded.">
+            <input type="number" min="0" max="10080" value={value.stallTimeoutMinutes} onChange={(e) => change("stallTimeoutMinutes", Number(e.target.value))} />
           </Field>
           <label className="automation-toggle">
             <input type="checkbox" checked={!!value.manualSelection}

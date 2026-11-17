@@ -55,6 +55,8 @@ api.MapPut("/settings", async (Settings input, Store store, Workflow workflow, C
         var old = store.Settings(); var settings = Merge(input,old); ValidateSettings(settings); store.Save(settings);
         if (old.ManualSelection != settings.ManualSelection)
             foreach (var book in store.Books().Where(b=>b.Status=="wanted")) { book.NextSearch=DateTimeOffset.MinValue; store.Save(book); }
+        if (!old.AutomationEnabled && settings.AutomationEnabled)
+            foreach (var book in store.Books().Where(b=>b.Status=="downloading")) { book.LastDownloadCheck=null; book.MissingSince=null; store.Save(book); }
         return Results.Ok(PublicSettings(settings));
     }
     finally { workflow.Gate.Release(); }
@@ -98,7 +100,21 @@ api.MapDelete("/books/{id}", async (string id, Store store, Workflow workflow, C
 });
 api.MapPost("/books/{id}/retry", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
     await workflow.Gate.WaitAsync(ct);
-    try { var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound(); book.NextSearch = DateTimeOffset.MinValue; book.Suspended = false; store.Save(book); return Results.Ok(); }
+    try { var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound(); workflow.Retry(book); return Results.Ok(); }
+    finally { workflow.Gate.Release(); }
+});
+api.MapPost("/books/{id}/replace", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
+    await workflow.Gate.WaitAsync(ct);
+    try { var book=store.Books().FirstOrDefault(b=>b.Id==id); if(book==null) return Results.NotFound(); workflow.Replace(book); return Results.Ok(); }
+    finally { workflow.Gate.Release(); }
+});
+api.MapPost("/books/{id}/clear-blocklist", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
+    await workflow.Gate.WaitAsync(ct);
+    try {
+        var book=store.Books().FirstOrDefault(b=>b.Id==id); if(book==null) return Results.NotFound();
+        for (var i=0;i<book.FailedReleases.Count;i++) book.FailedReleases[i]=book.FailedReleases[i] with { Blocked=false };
+        book.NextSearch=DateTimeOffset.MinValue; store.Save(book); store.Log(book,"Failed-release blocklist cleared; history retained"); return Results.Ok();
+    }
     finally { workflow.Gate.Release(); }
 });
 api.MapPost("/books/{id}/pause", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
@@ -120,7 +136,7 @@ api.MapGet("/books/{id}/releases", async (string id, string? q, Store store, Wor
         if (settings.ManualSelection && book.Status is "wanted" or "available")
         {
             var choices = await workflow.SearchChoices(book,settings,q,ct);
-            return Results.Ok(choices.Select(c => new { c.SelectionId, c.AlreadyTracked, canSelect=!c.AlreadyTracked && Workflow.CanChoose(c.Ranked.Release), release=PublicRelease(c.Ranked.Release), c.Ranked.Score, c.Ranked.Eligible, c.Ranked.Reasons }));
+            return Results.Ok(choices.Select(c => new { c.SelectionId, c.AlreadyTracked, canSelect=!c.AlreadyTracked && Workflow.CanChoose(c.Ranked.Release) && !book.FailedReleases.Any(f=>f.Blocked && Workflow.SameRelease(f,c.Ranked.Release)), release=PublicRelease(c.Ranked.Release), c.Ranked.Score, c.Ranked.Eligible, c.Ranked.Reasons }));
         }
         var releases = await workflow.Search(book,settings,ct);
         return Results.Ok(releases.Select(r => new { release = PublicRelease(r.Release), r.Score, r.Eligible, r.Reasons }));
@@ -150,7 +166,7 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.SeedersKnown, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
-static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch };
+static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
 static object PublicSettings(Settings settings) => new { settings = settings with { Prowlarr = settings.Prowlarr with { ApiKey = "", Password = "" }, Qbittorrent = settings.Qbittorrent with { ApiKey = "", Password = "" }, Audiobookshelf = settings.Audiobookshelf with { ApiKey = "", Password = "" } }, secrets = new { prowlarr = settings.Prowlarr.ApiKey.Length > 0, qbittorrent = settings.Qbittorrent.Password.Length > 0, audiobookshelf = settings.Audiobookshelf.ApiKey.Length > 0 } };
 static Settings Merge(Settings input, Settings old) => input with {
     Prowlarr = input.Prowlarr with { ApiKey = string.IsNullOrEmpty(input.Prowlarr.ApiKey) ? old.Prowlarr.ApiKey : input.Prowlarr.ApiKey },
@@ -166,6 +182,7 @@ static void ValidateSettings(Settings settings)
     Integrations.BaseUrl(settings.Prowlarr.Url); Integrations.BaseUrl(settings.Qbittorrent.Url); Integrations.BaseUrl(settings.Audiobookshelf.Url);
     ValidatePreferences(settings.Defaults);
     if(settings.SearchIntervalMinutes is < 15 or > 10080) throw new InvalidOperationException("Search interval must be between 15 minutes and seven days.");
+    if(settings.StallTimeoutMinutes != 0 && settings.StallTimeoutMinutes is < 15 or > 10080) throw new InvalidOperationException("Stall timeout must be zero (disabled), or between 15 minutes and seven days.");
     if(settings.ImportMode is not ("copy" or "hardlink-or-copy")) throw new InvalidOperationException("Unknown import mode.");
     if(!Path.IsPathFullyQualified(settings.LibraryRoot) || !Path.IsPathFullyQualified(settings.DownloadRoot)) throw new InvalidOperationException("Storage roots must be absolute paths inside the Grimarr container.");
     var library = Path.GetFullPath(settings.LibraryRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

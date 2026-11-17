@@ -25,6 +25,8 @@ export type Settings = {
   searchIntervalMinutes: number;
   automationEnabled: boolean;
   manualSelection: boolean;
+  automaticFailedDownloadRecovery: boolean;
+  stallTimeoutMinutes: number;
 };
 export type Book = {
   id: string;
@@ -39,6 +41,8 @@ export type Book = {
   preferences: Preferences;
   selectedRelease?: { title: string };
   importedPath?: string;
+  failureReason?: string;
+  failedReleases: { title: string; reason: string; at: string; blocked: boolean; infoHash?: string }[];
 };
 export type CatalogBook = {
   title: string;
