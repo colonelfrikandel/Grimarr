@@ -8,6 +8,12 @@ using System.Text.Json;
 int passed = 0;
 void Check(string name, bool condition) { if(!condition) throw new Exception("FAIL: " + name); passed++; Console.WriteLine("PASS: " + name); }
 void Throws(string name, Action action) { try { action(); } catch(InvalidOperationException) { Check(name,true); return; } throw new Exception("FAIL: " + name); }
+using (var sqlite=new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:"))
+{
+    sqlite.Open();
+    Check("Loaded native SQLite includes the CVE-2025-6965 fix",Version.Parse(sqlite.ServerVersion)>=new Version(3,50,2));
+    Console.WriteLine("Native SQLite version: " + sqlite.ServerVersion);
+}
 var book = new Book { Title="The Hobbit", Author="J R R Tolkien" };
 var release = new Release { Title="J R R Tolkien - The Hobbit [English] [Unabridged] M4B", Seeders=12, Size=500_000_000 };
 Check("Exact English unabridged match accepted",Ranking.Rank(book,release).Eligible);

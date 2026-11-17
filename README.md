@@ -100,6 +100,8 @@ The initial build requires internet access to download images and dependencies. 
 
 ## Service configuration
 
+For an existing deployment, see [Update and test](UPDATE_AND_TEST.md). It covers preserving your config and encryption keys, upgrading a custom alpha deployment, rollback, and testing failure recovery.
+
 In **Settings**, enter and test your service URLs and credentials:
 
 | Service | Example host URL | Credentials |
