@@ -184,6 +184,56 @@ try {
   await page.getByRole('tab',{name:'Search with Prowlarr',exact:true}).click();await page.getByLabel('Search audiobook catalog',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Close dialog'}).click();
   console.log('PASS: Quick Add hash, magnet and file forms queue real records, show validation errors, preserve Prowlarr choice, and fit mobile.');
+  const appleMatches=[1,2].map(n=>({title:`Catalog edition ${n}`,author:'Catalog Author',cover:'',catalogId:`itunes:${n}`,selectionId:`edition-${n}`,description:`Description for edition ${n}`,releaseDate:'2020-01-02',genre:'Fiction',storeUrl:'https://books.apple.com/us/audiobook/id123'}));
+  let catalogMode='matches',catalogQuerySeen='',applePayload;
+  const catalogRoute=async route=>{
+    catalogQuerySeen=new URL(route.request().url()).searchParams.get('q');
+    if(catalogMode==='failure')return route.fulfill({status:503,json:{error:'Apple temporarily unavailable'}});
+    if(catalogMode==='slow'){await new Promise(r=>setTimeout(r,900));try{await route.fulfill({json:appleMatches});}catch{}return;}
+    return route.fulfill({json:catalogMode==='empty'?[]:appleMatches});
+  };
+  await page.route('**/api/catalog?q=*',catalogRoute);
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('magnet:?xt=urn:btih:'+'9'.repeat(40)+'&dn='+encodeURIComponent('Jane Austen - Pride and Prejudice')+'&tr=https%3A%2F%2Ftracker.example%2Fsecret');
+  const appleTitleId=await page.getByLabel('Book title',{exact:true}).getAttribute('id');
+  await page.waitForFunction(([id,value])=>document.getElementById(id)?.value===value,[appleTitleId,'Pride and Prejudice']);
+  const beforeApple=(await(await page.request.get('http://127.0.0.1:8787/api/books')).json()).length;
+  await page.getByLabel('Apple Books search',{exact:true}).press('Enter');await page.getByRole('button',{name:'Choose Catalog edition 2 by Catalog Author',exact:true}).waitFor();
+  assert.equal(catalogQuerySeen,'Pride and Prejudice Jane Austen');assert(!catalogQuerySeen.includes('secret'));
+  assert(await page.getByRole('button',{name:'Queue download',exact:true}).isDisabled(),'Results require an explicit match or manual choice');
+  assert.equal((await(await page.request.get('http://127.0.0.1:8787/api/books')).json()).length,beforeApple);
+  await page.getByRole('button',{name:'Choose Catalog edition 2 by Catalog Author',exact:true}).click();
+  assert.equal(await page.getByLabel('Book title',{exact:true}).inputValue(),'Catalog edition 2');
+  assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'Catalog Author');
+  await page.getByText('Book details',{exact:true}).click();await page.getByText('Description for edition 2',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('link',{name:'View on Apple Books'}).getAttribute('href'),appleMatches[1].storeUrl);
+  await page.getByLabel('Book title',{exact:true}).fill('Reviewed catalog title');await page.getByLabel('Author',{exact:true}).fill('Reviewed catalog author');
+  await page.screenshot({path:'test-results/quick-add-apple-mobile.png',fullPage:true});
+  assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'Apple matching overflows on mobile');
+  const appleCreate=async route=>{applePayload=route.request().postDataJSON();return route.fulfill({json:{id:'apple-ui',...applePayload,status:'queued',preferences:stored.defaults}});};
+  await page.route('**/api/books/quick-add',appleCreate);
+  await page.getByRole('button',{name:'Queue download',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+  assert.equal(applePayload.catalogSelectionId,'edition-2');assert.equal(applePayload.title,'Reviewed catalog title');assert.equal(applePayload.author,'Reviewed catalog author');
+  await page.unroute('**/api/books/quick-add',appleCreate);
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  await page.getByLabel('Book title',{exact:true}).fill('Manual book');await page.getByLabel('Author',{exact:true}).fill('Manual author');
+  for(const mode of ['empty','failure','matches']) {
+    catalogMode=mode;await page.getByRole('button',{name:'Find Apple Books matches',exact:true}).click();
+    if(mode==='empty')await page.getByText(/No Apple Books matches found/).waitFor();
+    else if(mode==='failure')await page.getByText(/Apple Books lookup failed:/).waitFor();
+    else {await page.getByRole('button',{name:'Choose Catalog edition 1 by Catalog Author',exact:true}).click();}
+    await page.getByRole('button',{name:'Use manual details',exact:true}).click();
+    assert(await page.getByRole('button',{name:'Queue download',exact:true}).isEnabled());
+    assert.equal(await page.getByLabel('Selected Apple Books match',{exact:true}).count(),0);
+  }
+  catalogMode='slow';const oldLookup=page.waitForRequest(r=>r.url().includes('/api/catalog?q='));
+  await page.getByRole('button',{name:'Find Apple Books matches',exact:true}).click();await oldLookup;
+  await page.getByLabel('Apple Books search',{exact:true}).fill('A different query');await new Promise(r=>setTimeout(r,1000));
+  assert.equal(await page.getByRole('button',{name:/Choose Catalog edition/}).count(),0,'Canceled Apple response leaked into a changed query');
+  catalogMode='matches';await page.getByRole('button',{name:'Find Apple Books matches',exact:true}).click();await page.getByRole('button',{name:'Choose Catalog edition 1 by Catalog Author',exact:true}).click();
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('8'.repeat(40));assert.equal(await page.getByLabel('Selected Apple Books match',{exact:true}).count(),0,'Changed torrent retained old catalog metadata');
+  await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/catalog?q=*',catalogRoute);
+  console.log('PASS: Apple Books requires explicit edition selection, submits reviewed names and chosen ID, supports empty/error/manual fallback, ignores stale lookups, clears selection on source changes, and fits mobile. Lookup alone creates no books.');
   let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,
     message:'Torrent is missing from qBittorrent.',preferences:stored.defaults,selectedRelease:{title:'Failed release'},
     failedReleases:[{title:'Failed release',reason:'Torrent is missing from qBittorrent.',at:new Date().toISOString(),blocked:true}]};

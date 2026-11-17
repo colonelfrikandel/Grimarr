@@ -23,8 +23,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; };
 });
 builder.Services.AddAuthorization();
-builder.Services.AddRateLimiter(options => options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
-builder.Services.AddSingleton<Store>(); builder.Services.AddSingleton<Integrations>(); builder.Services.AddSingleton<Importer>(); builder.Services.AddSingleton<Workflow>(); builder.Services.AddHostedService<Worker>();
+builder.Services.AddRateLimiter(options => {
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("catalog", _ => RateLimitPartition.GetFixedWindowLimiter("apple-books", _ => new FixedWindowRateLimiterOptions { PermitLimit = 15, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.RejectionStatusCode=429;
+});
+builder.Services.AddSingleton<Store>(); builder.Services.AddSingleton<Integrations>(); builder.Services.AddSingleton<Importer>(); builder.Services.AddSingleton<AppleCatalog>(); builder.Services.AddSingleton<Workflow>(); builder.Services.AddHostedService<Worker>();
 var app = builder.Build();
 app.Use(async (context,next) => {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -84,7 +88,7 @@ api.MapPost("/books/quick-add/preview", async (HttpContext context, Cancellation
     if (input==null) return Results.BadRequest(new { error="Provide a magnet link, info hash, or torrent file." });
     return Results.Ok(QuickAdd.Preview(input));
 });
-api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflow workflow, CancellationToken ct) => {
+api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflow workflow, AppleCatalog catalog, CancellationToken ct) => {
     const long maximumBody=24*1024*1024;
     if (context.Request.ContentLength>maximumBody) return Results.Json(new { error="Torrent upload is too large (16 MB maximum file size)." },statusCode:413);
     var limit=context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
@@ -93,7 +97,7 @@ api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflo
     if (input==null) return Results.BadRequest(new { error="Enter the book details and a download source." });
     await workflow.Gate.WaitAsync(ct);
     try {
-        var book=QuickAdd.Create(input,store.Settings().Defaults); var books=store.Books();
+        var book=catalog.Apply(QuickAdd.Create(input,store.Settings().Defaults),input.CatalogSelectionId); var books=store.Books();
         if (books.Any(b=>b.Title.Equals(book.Title,StringComparison.OrdinalIgnoreCase) && b.Author.Equals(book.Author,StringComparison.OrdinalIgnoreCase)))
             return Results.Conflict(new { error="This book is already in your library. Open it to retry or choose a replacement." });
         var hash=book.SelectedRelease!.InfoHash!;
@@ -103,14 +107,14 @@ api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflo
     }
     finally { workflow.Gate.Release(); }
 });
-api.MapPost("/books", async (BookInput input, Store store, Workflow workflow, CancellationToken ct) => {
+api.MapPost("/books", async (BookInput input, Store store, Workflow workflow, AppleCatalog catalog, CancellationToken ct) => {
     if(string.IsNullOrWhiteSpace(input.Title) || string.IsNullOrWhiteSpace(input.Author) || input.Title.Length > 250 || input.Author.Length > 200) return Results.BadRequest(new { error = "Enter a title and author (maximum 250 and 200 characters)." });
     if(input.Cover.Length > 2000 || input.CatalogId.Length > 200) return Results.BadRequest();
     await workflow.Gate.WaitAsync(ct);
     try {
         if(store.Books().Any(b => b.Title.Equals(input.Title.Trim(),StringComparison.OrdinalIgnoreCase) && b.Author.Equals(input.Author.Trim(),StringComparison.OrdinalIgnoreCase))) return Results.Conflict(new { error = "This book is already in your library." });
         var preferences = input.Preferences ?? store.Settings().Defaults; ValidatePreferences(preferences);
-        var book = new Book { Title = input.Title.Trim(), Author = input.Author.Trim(), Cover = Uri.TryCreate(input.Cover,UriKind.Absolute,out var cover) && cover.Scheme == "https" ? input.Cover : "", CatalogId = input.CatalogId, Preferences = preferences };
+        var book = catalog.Apply(new Book { Title = input.Title.Trim(), Author = input.Author.Trim(), Cover = Uri.TryCreate(input.Cover,UriKind.Absolute,out var cover) && cover.Scheme == "https" ? input.Cover : "", CatalogId = input.CatalogId, Preferences = preferences },input.CatalogSelectionId);
         store.Save(book); store.Log(book,"Added and monitored for automatic download"); return Results.Ok(PublicBook(book));
     }
     finally { workflow.Gate.Release(); }
@@ -182,19 +186,13 @@ api.MapPost("/books/{id}/select", async (string id, SelectionInput input, Store 
     finally { workflow.Gate.Release(); }
 });
 api.MapGet("/activity", (Store store) => store.Activities());
-api.MapGet("/catalog", async (string q, CancellationToken ct) => {
-    if(q.Length is < 2 or > 200) return Results.BadRequest(new { error = "Search must contain 2–200 characters." });
-    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-    using var response = await client.GetAsync("https://itunes.apple.com/search?media=audiobook&entity=audiobook&country=US&limit=24&term=" + Uri.EscapeDataString(q),ct); response.EnsureSuccessStatusCode();
-    using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-    return Results.Ok(json.RootElement.GetProperty("results").EnumerateArray().Select(r => new { title = Integrations.Text(r,"collectionName"), author = Integrations.Text(r,"artistName"), cover = Integrations.Text(r,"artworkUrl100"), catalogId = "itunes:" + (r.TryGetProperty("collectionId",out var id) ? id.ToString() : ""), source = "Apple Books", rating = (double?)null }).ToArray());
-});
+api.MapGet("/catalog", async (string q, AppleCatalog catalog, CancellationToken ct) => Results.Ok(await catalog.Search(q,ct))).RequireRateLimiting("catalog");
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 app.Run();
 
 static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.SeedersKnown, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
-static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.AcquisitionMode, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
+static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Description, book.PublishedDate, book.Genre, book.CatalogUrl, book.Preferences, book.Status, book.AcquisitionMode, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
 static object PublicSettings(Settings settings) => new { settings = settings with { Prowlarr = settings.Prowlarr with { ApiKey = "", Password = "" }, Qbittorrent = settings.Qbittorrent with { ApiKey = "", Password = "" }, Audiobookshelf = settings.Audiobookshelf with { ApiKey = "", Password = "" } }, secrets = new { prowlarr = settings.Prowlarr.ApiKey.Length > 0, qbittorrent = settings.Qbittorrent.Password.Length > 0, audiobookshelf = settings.Audiobookshelf.ApiKey.Length > 0 } };
 static Settings Merge(Settings input, Settings old) => input with {
     Prowlarr = input.Prowlarr with { ApiKey = string.IsNullOrEmpty(input.Prowlarr.ApiKey) ? old.Prowlarr.ApiKey : input.Prowlarr.ApiKey },
@@ -222,6 +220,6 @@ static void ValidateSettings(Settings settings)
     if(settings.AutomationEnabled && (string.IsNullOrWhiteSpace(settings.LibraryId) || string.IsNullOrWhiteSpace(settings.Audiobookshelf.ApiKey))) throw new InvalidOperationException("Configure Audiobookshelf credentials and select a library before enabling automation. Prowlarr is optional for Quick Add.");
 }
 record LoginRequest(string Password);
-record BookInput(string Title, string Author, string Cover = "", string CatalogId = "", Preferences? Preferences = null);
+record BookInput(string Title, string Author, string Cover = "", string CatalogId = "", Preferences? Preferences = null, string? CatalogSelectionId = null);
 record SelectionInput(string[] SelectionIds);
 public partial class Program { }

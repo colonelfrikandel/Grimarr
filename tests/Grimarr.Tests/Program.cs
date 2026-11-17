@@ -139,5 +139,6 @@ try
 }
 finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root,true); }
 QuickAddChecks.Run(Check,Throws);
+await AppleCatalogChecks.Run(Check,Throws);
 await ImportChecks.Run(Check);
 Console.WriteLine($"\n{passed} checks passed.");

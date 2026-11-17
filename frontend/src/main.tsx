@@ -755,7 +755,7 @@ function AddModal({
             setBusy(true);
             setError("");
             try {
-              const created = await api<Book>("/books", "POST", { ...book, preferences: prefs });
+              const created = await api<Book>("/books", "POST", { ...book, preferences: prefs, catalogSelectionId: book.selectionId });
               await added(created);
             } catch (e) {
               setError((e as Error).message);
@@ -822,11 +822,30 @@ function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean
     [file, setFile] = useState<File | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const titleEdited = useRef(false), authorEdited = useRef(false);
   const [suggestion, setSuggestion] = useState<QuickSuggestion | null>(null), [detecting, setDetecting] = useState(false), [previewNotice, setPreviewNotice] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState<string | null>(null), [catalogResults, setCatalogResults] = useState<CatalogBook[] | null>(null),
+    [selectedCatalog, setSelectedCatalog] = useState<CatalogBook | null>(null), [catalogBusy, setCatalogBusy] = useState(false),
+    [catalogError, setCatalogError] = useState(""), [manualDetails, setManualDetails] = useState(false);
+  const catalogAbort = useRef<AbortController | null>(null), catalogVersion = useRef(0);
+  const effectiveCatalogQuery = (catalogQuery ?? `${title} ${author}`.trim()).slice(0, 200);
+  const lookup = async () => {
+    const query = effectiveCatalogQuery.trim(); if (query.length < 2) return;
+    catalogAbort.current?.abort(); const controller = new AbortController(); catalogAbort.current = controller;
+    const version = ++catalogVersion.current;
+    setCatalogQuery(query); setCatalogBusy(true); setCatalogError(""); setCatalogResults(null); setSelectedCatalog(null); setManualDetails(false);
+    try {
+      const results = await api<CatalogBook[]>("/catalog?q=" + encodeURIComponent(query), "GET", undefined, controller.signal);
+      if (version === catalogVersion.current) setCatalogResults(results);
+    } catch (e) { if (version === catalogVersion.current && !controller.signal.aborted) setCatalogError((e as Error).message); }
+    finally { if (version === catalogVersion.current) setCatalogBusy(false); }
+  };
+  const useManual = () => { setSelectedCatalog(null); setCatalogResults(null); setManualDetails(true); setCatalogError(""); };
   useEffect(() => {
     const controller = new AbortController(); let active = true;
+    catalogAbort.current?.abort(); catalogVersion.current++;
+    setCatalogQuery(null); setCatalogResults(null); setSelectedCatalog(null); setCatalogBusy(false); setCatalogError(""); setManualDetails(false);
     setSuggestion(null); setPreviewNotice(""); setDetecting(false);
     if (!titleEdited.current) setTitle(""); if (!authorEdited.current) setAuthor("");
-    if (kind === "link" ? !source.trim() : !file) return () => { active = false; controller.abort(); };
+    if (kind === "link" ? !source.trim() : !file) return () => { active = false; controller.abort(); catalogAbort.current?.abort(); catalogVersion.current++; };
     const timer = window.setTimeout(async () => {
       setDetecting(true);
       try {
@@ -840,13 +859,13 @@ function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean
       } catch (e) { if (active) setPreviewNotice((e as Error).message); }
       finally { if (active) setDetecting(false); }
     }, 400);
-    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); catalogAbort.current?.abort(); catalogVersion.current++; };
   }, [kind, source, file]);
   return <form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError("");
     try {
       const torrentBase64 = kind === "file" ? await readQuickTorrent(file) : undefined;
-      await added(await api<Book>("/books/quick-add", "POST", { title, author, source: kind === "link" ? source.trim() : undefined, torrentBase64 }));
+      await added(await api<Book>("/books/quick-add", "POST", { title, author, source: kind === "link" ? source.trim() : undefined, torrentBase64, catalogSelectionId: selectedCatalog?.selectionId }));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }}>
     <p className="muted">Already found a release? Add its info hash, magnet link, or torrent file directly.</p>
@@ -858,14 +877,38 @@ function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean
     {kind === "link" ? <Field label="Info hash or magnet link"><textarea required rows={3} maxLength={16384} value={source} onChange={e => { setSource(e.target.value); setError(""); }} placeholder="Paste an info hash or magnet:?xt=urn:btih:…" /></Field>
       : <Field label="Torrent file" help="Select a v1 or hybrid .torrent file, up to 16 MB."><input type="file" accept=".torrent,application/x-bittorrent" required onChange={e => { setFile(e.target.files?.[0] || null); setError(""); }} /></Field>}
     <p className="helper" role="status">{detecting ? "Reading book details…" : previewNotice || "Names will be suggested when available. Review or enter the title and author before adding."}</p>
-    {suggestion && (suggestion.title || suggestion.author) && <button type="button" className="link" onClick={() => { titleEdited.current = false; authorEdited.current = false; setTitle(suggestion.title); setAuthor(suggestion.author); }}>Restore detected details</button>}
+    {suggestion && (suggestion.title || suggestion.author) && <button type="button" className="secondary" onClick={() => { titleEdited.current = false; authorEdited.current = false; setTitle(suggestion.title); setAuthor(suggestion.author); setCatalogQuery(null); useManual(); }}>Restore detected details</button>}
     <div className="form-grid">
       <Field label="Book title"><input required maxLength={250} value={title} onChange={e => { titleEdited.current = true; setTitle(e.target.value); }} /></Field>
       <Field label="Author"><input required maxLength={200} value={author} onChange={e => { authorEdited.current = true; setAuthor(e.target.value); }} /></Field>
     </div>
+    <section className="quick-catalog" aria-label="Apple Books matching">
+      <h3>Find the right Apple Books edition</h3>
+      <p className="helper">Optional: look up the detected or corrected title and author, then choose a cover and book details. Nothing is added until you confirm.</p>
+      <Field label="Apple Books search"><input maxLength={200} value={effectiveCatalogQuery} onChange={e => { catalogAbort.current?.abort(); catalogVersion.current++; setCatalogBusy(false); setCatalogQuery(e.target.value); setCatalogResults(null); setSelectedCatalog(null); setManualDetails(false); }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void lookup(); } }} /></Field>
+      <div className="quick-catalog-actions">
+        <button type="button" className="secondary" disabled={busy || catalogBusy || effectiveCatalogQuery.trim().length < 2} onClick={() => void lookup()}>{catalogBusy ? "Searching Apple Books…" : "Find Apple Books matches"}</button>
+        {(catalogResults !== null || selectedCatalog || catalogError) && <button type="button" className="secondary" disabled={catalogBusy} onClick={useManual}>Use manual details</button>}
+      </div>
+      {catalogError && <p className="helper" role="status">Apple Books lookup failed: {catalogError} You can still add using manual details.</p>}
+      {catalogResults?.length === 0 && <p className="helper">No Apple Books matches found. Try a broader search or use manual details.</p>}
+      {catalogResults && catalogResults.length > 0 && !selectedCatalog && <>
+        <p className="helper">Choose a match, or use manual details to continue without Apple Books metadata.</p>
+        <div className="catalog-results quick-catalog-results">{catalogResults.map(result => <button type="button" className="catalog-item" key={result.selectionId || result.catalogId} aria-label={`Choose ${result.title} by ${result.author}`} onClick={() => { catalogAbort.current?.abort(); catalogVersion.current++; titleEdited.current = true; authorEdited.current = true; setTitle(result.title); setAuthor(result.author); setSelectedCatalog(result); setManualDetails(false); }}>
+          <Cover book={result} /><span><strong>{result.title}</strong><small>{result.author}</small><small>{[result.releaseDate?.slice(0, 10), result.genre].filter(Boolean).join(" · ")}</small>{result.description && <span className="catalog-description-snippet">{result.description}</span>}</span>
+        </button>)}</div>
+      </>}
+      {selectedCatalog && <div className="selected-catalog" aria-label="Selected Apple Books match">
+        <div className="catalog-item"><Cover book={selectedCatalog} /><span><strong>{selectedCatalog.title}</strong><small>{selectedCatalog.author}</small><small>Selected Apple Books match</small></span></div>
+        <details><summary>Book details</summary><p>{selectedCatalog.description || "No description is available."}</p><p className="helper">{[selectedCatalog.releaseDate?.slice(0, 10), selectedCatalog.genre].filter(Boolean).join(" · ")}</p></details>
+        {selectedCatalog.storeUrl && <a href={selectedCatalog.storeUrl} target="_blank" rel="noopener noreferrer">View on Apple Books</a>}
+        <p className="helper">The selected cover and details will be saved. You can still correct the title and author above.</p>
+      </div>}
+      {manualDetails && <p className="helper">Using manual details without an Apple Books match.</p>}
+    </section>
     <p className="helper">Quick Add uses your exact release. Check its language and edition yourself. Grimarr will track the download, validate the audio, and import it into your selected Audiobookshelf library. A hash or magnet still needs peers to supply metadata and files.</p>
     {!automationEnabled && <p className="helper">Automation is paused. This download will stay queued until you enable it in Settings.</p>}
-    <div className="modal-actions"><button className="primary" disabled={busy}><Plus size={17} />{busy ? "Adding…" : automationEnabled ? "Add download" : "Queue download"}</button></div>
+    <div className="modal-actions"><button className="primary" disabled={busy || catalogBusy || (!!catalogResults?.length && !selectedCatalog && !manualDetails)}><Plus size={17} />{busy ? "Adding…" : automationEnabled ? "Add download" : "Queue download"}</button></div>
   </form>;
 }
 function BookModal({
@@ -902,6 +945,7 @@ function BookModal({
   return (
     <Modal title={book.title} close={close}>
       <p className="muted">{book.author}</p>
+      {book.description && <details className="book-description"><summary>Book details</summary><p>{book.description}</p>{book.catalogUrl && <a href={book.catalogUrl} target="_blank" rel="noopener noreferrer">View on Apple Books</a>}</details>}
       {error && <Notice text={error} />}
       <div className="detail-state">
         <span className={"badge " + book.status}>

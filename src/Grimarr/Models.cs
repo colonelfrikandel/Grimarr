@@ -29,6 +29,10 @@ public record Book
     public string Author { get; init; } = "";
     public string Cover { get; init; } = "";
     public string CatalogId { get; init; } = "";
+    public string Description { get; init; } = "";
+    public string PublishedDate { get; init; } = "";
+    public string Genre { get; init; } = "";
+    public string CatalogUrl { get; init; } = "";
     public Preferences Preferences { get; init; } = new();
     public string Status { get; set; } = "wanted";
     public string AcquisitionMode { get; set; } = "prowlarr";

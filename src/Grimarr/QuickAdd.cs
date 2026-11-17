@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace Grimarr;
 
-public record QuickAddInput(string? Title = null, string? Author = null, string? Source = null, string? TorrentBase64 = null);
+public record QuickAddInput(string? Title = null, string? Author = null, string? Source = null, string? TorrentBase64 = null, string? CatalogSelectionId = null);
 public record QuickAddSuggestion(string Title, string Author, string DisplayName, string Notice);
 
 public static class QuickAdd

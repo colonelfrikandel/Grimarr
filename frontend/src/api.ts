@@ -33,6 +33,10 @@ export type Book = {
   title: string;
   author: string;
   cover: string;
+  description?: string;
+  publishedDate?: string;
+  genre?: string;
+  catalogUrl?: string;
   status: string;
   acquisitionMode: "prowlarr" | "quick-add";
   suspended: boolean;
@@ -50,6 +54,11 @@ export type CatalogBook = {
   author: string;
   cover: string;
   catalogId: string;
+  description?: string;
+  releaseDate?: string;
+  genre?: string;
+  storeUrl?: string;
+  selectionId?: string;
 };
 export type Release = {
   selectionId?: string;
