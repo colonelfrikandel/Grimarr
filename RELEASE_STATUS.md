@@ -32,6 +32,18 @@ Verified on Windows and on a Linux Docker server on 2026-11-17. Grimarr remains 
 - Expand operational fault testing to abrupt container termination during a large copy and other storage layouts. Disk exhaustion, Linux permission denial, restart boundaries, and stale staging have been checked, but not every hardware/storage failure is simulated.
 - Complete the later release work: existing-library availability checks, security review, installation/upgrade/restore checks, and release packaging.
 
+## Quick Add verification and deployment
+
+Revision `6d344fe` adds **Quick Add** alongside **Search with Prowlarr** in the Add audiobook dialog. It accepts hexadecimal/base32 v1 info hashes, magnets, and v1/hybrid torrent files up to 16 MB. Direct releases use the existing category/tag, download tracking, validation, import, and scan pipeline. Private magnet parameters and uploaded metadata are encrypted and omitted from public API responses. Failures require an explicit retry or a choice to search Prowlarr for a replacement.
+
+- 115 backend checks plus 66 integration checks passed on Linux (181 total), including 16 Quick Add integration checks. The browser suite passed all three input forms, validation errors, mobile layout, and switching back to Prowlarr.
+- 17 live checks passed with the production image, the actual qBittorrent client, a temporary local seeder, and Audiobookshelf. All three input types completed and produced indexed audio items with matching content. Public discovery was disabled on the seeder and peer addresses were supplied explicitly; public DHT availability was not assumed.
+- Duplicate torrent rejection, category/tracking tags, operation without Prowlarr configured, and compatibility with manual-selection mode were verified. Test torrents, library entries, marked test media, and temporary containers were cleaned up; original torrents and library items were retained.
+- The new image was deployed on the Linux server after retaining the original image and a full config/keys backup. All six existing managed books, their imported paths, settings, credentials, mounts, port, and automation/manual-selection preferences were preserved. The container is healthy and all service connection tests passed.
+- The actual deployed UI passed login, both acquisition choices, hash/magnet and file-upload controls, invalid-input handling, mobile layout, and unchanged book-count checks.
+
+Quick Add does not fix missing peers or unavailable torrent metadata. A torrent upload supplies metadata but still needs the audio pieces. A user-provided release bypasses Prowlarr's edition/language matching and should be checked before adding.
+
 ## Linux server verification
 
 Application revision `a49b52b` was built and deployed with Docker while preserving the existing config, media mounts, port, container user, credentials, and six managed book entries. A complete pre-update config backup and the original image were retained for rollback.
