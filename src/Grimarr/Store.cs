@@ -17,10 +17,20 @@ public sealed class Store
         connectionString = new SqliteConnectionStringBuilder { DataSource = Path.Combine(root, "grimarr.db") }.ToString();
         using var db = Open();
         using var cmd = db.CreateCommand();
-        cmd.CommandText = "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, bookId TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL);";
+        cmd.CommandText = "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, bookId TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL); CREATE TABLE IF NOT EXISTS security_migrations (id TEXT PRIMARY KEY);";
         cmd.ExecuteNonQuery();
+        using var marker=db.CreateCommand();marker.CommandText="SELECT count(*) FROM security_migrations WHERE id='private-identifiers-v1'";
+        if((long)marker.ExecuteScalar()! == 0)
+        {
+            // Preserve identities and workflow state while upgrading legacy private identifiers.
+            var legacy=Read<Book>("SELECT json FROM books");foreach(var book in legacy)Save(DecodeBook(book));
+            if(Read<Settings>("SELECT json FROM settings WHERE id=1").Count>0)Save(Settings());
+            // Remove old plaintext pages and WAL copies, including after an interrupted migration.
+            using var cleanup=db.CreateCommand();cleanup.CommandText="VACUUM; PRAGMA wal_checkpoint(TRUNCATE);";cleanup.ExecuteNonQuery();
+            Write("INSERT INTO security_migrations VALUES ('private-identifiers-v1')");
+        }
     }
-    private SqliteConnection Open() { var db = new SqliteConnection(connectionString); db.Open(); return db; }
+    private SqliteConnection Open() { var db = new SqliteConnection(connectionString); db.Open();using var cmd=db.CreateCommand();cmd.CommandText="PRAGMA secure_delete=ON";cmd.ExecuteNonQuery();return db; }
     public Settings Settings()
     {
         var settings = Read<Settings>("SELECT json FROM settings WHERE id=1").FirstOrDefault() ?? new();
@@ -30,9 +40,11 @@ public sealed class Store
     private Connection Decode(Connection connection) => connection with { ApiKey = Unprotect(connection.ApiKey), Password = Unprotect(connection.Password) };
     private string Protect(string value) => value.Length == 0 ? "" : "protected:" + protector.Protect(value);
     private string Unprotect(string value) => value.StartsWith("protected:",StringComparison.Ordinal) ? protector.Unprotect(value[10..]) : value;
-    private Release Encode(Release r) => r with { DownloadUrl=r.DownloadUrl==null ? null : Protect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Protect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Protect(r.TorrentData) };
-    private Release Decode(Release r) => r with { DownloadUrl=r.DownloadUrl==null ? null : Unprotect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Unprotect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Unprotect(r.TorrentData) };
-    public List<Book> Books() => Read<Book>("SELECT json FROM books").Select(b => b with { SelectedRelease = b.SelectedRelease == null ? null : Decode(b.SelectedRelease) }).OrderByDescending(b => b.AddedAt).ToList();
+    private Release Encode(Release r) => r with { Guid=Protect(r.Guid),DownloadUrl=r.DownloadUrl==null ? null : Protect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Protect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Protect(r.TorrentData) };
+    private Release Decode(Release r) => r with { Guid=Unprotect(r.Guid),DownloadUrl=r.DownloadUrl==null ? null : Unprotect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Unprotect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Unprotect(r.TorrentData) };
+    private Book EncodeBook(Book book)=>book with { SelectedRelease=book.SelectedRelease==null ? null : Encode(book.SelectedRelease),FailedReleases=book.FailedReleases.Select(f=>f with {Guid=Protect(f.Guid)}).ToList() };
+    private Book DecodeBook(Book book)=>book with { SelectedRelease=book.SelectedRelease==null ? null : Decode(book.SelectedRelease),FailedReleases=book.FailedReleases.Select(f=>f with {Guid=Unprotect(f.Guid)}).ToList() };
+    public List<Book> Books() => Read<Book>("SELECT json FROM books").Select(DecodeBook).OrderByDescending(b => b.AddedAt).ToList();
     private List<T> Read<T>(string sql)
     {
         using var db = Open(); using var cmd = db.CreateCommand(); cmd.CommandText = sql;
@@ -41,7 +53,7 @@ public sealed class Store
         return result;
     }
     public void Save(Settings settings) => Write("INSERT INTO settings VALUES (1,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$json", JsonSerializer.Serialize(settings with { Prowlarr = Encode(settings.Prowlarr), Qbittorrent = Encode(settings.Qbittorrent), Audiobookshelf = Encode(settings.Audiobookshelf) }, Json)));
-    public void Save(Book book) => Write("INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$id", book.Id), ("$json", JsonSerializer.Serialize(book with { SelectedRelease = book.SelectedRelease == null ? null : Encode(book.SelectedRelease) }, Json)));
+    public void Save(Book book) => Write("INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$id", book.Id), ("$json", JsonSerializer.Serialize(EncodeBook(book), Json)));
     public void Log(Book book, string message) => Write("INSERT INTO activity(at,bookId,title,message) VALUES ($at,$id,$title,$message)", ("$at", DateTimeOffset.UtcNow.ToString("O")), ("$id", book.Id), ("$title", book.Title), ("$message", message));
     public void Remove(Book book)
     {
@@ -55,7 +67,7 @@ public sealed class Store
         foreach (var book in books)
         {
             var release = book.SelectedRelease!;
-            var protectedBook = book with { SelectedRelease = Encode(release) };
+            var protectedBook = EncodeBook(book);
             using var cmd = db.CreateCommand(); cmd.Transaction = transaction;
             cmd.CommandText = "INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json";
             cmd.Parameters.AddWithValue("$id",book.Id); cmd.Parameters.AddWithValue("$json",JsonSerializer.Serialize(protectedBook,Json)); cmd.ExecuteNonQuery();

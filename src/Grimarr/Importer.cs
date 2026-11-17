@@ -24,8 +24,11 @@ public sealed class Importer
     public static void NoLinks(string path)
     {
         for (var current = Path.GetFullPath(path); !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
-            if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                throw new InvalidOperationException("Symlinks are not supported in import paths. Mount the real storage directory.");
+        {
+            try { if((File.GetAttributes(current)&FileAttributes.ReparsePoint)!=0)throw new InvalidOperationException("Symlinks are not supported in import paths. Mount the real storage directory."); }
+            catch(FileNotFoundException) { }
+            catch(DirectoryNotFoundException) { }
+        }
     }
     public static string MapPath(Settings settings, string remote)
     {
@@ -117,7 +120,7 @@ public sealed class Importer
     private static async Task ValidateAudio(string path, CancellationToken ct)
     {
         var info = new ProcessStartInfo("ffprobe") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-        foreach(var argument in new[] { "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type:format=duration", "-of", "json", path }) info.ArgumentList.Add(argument);
+        foreach(var argument in new[] { "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", "mp3,mov,mp4,m4a,3gp,3g2,mj2,flac,ogg", "-select_streams", "a", "-show_entries", "stream=codec_type:format=duration", "-of", "json", path }) info.ArgumentList.Add(argument);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("ffprobe could not start.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(45));
         try

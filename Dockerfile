@@ -1,14 +1,15 @@
 FROM node:24-alpine AS ui
 WORKDIR /ui
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts && npm audit --audit-level=high
 COPY frontend/ ./
 RUN npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY src/Grimarr/Grimarr.csproj src/Grimarr/
-RUN dotnet restore src/Grimarr/Grimarr.csproj
+COPY src/Grimarr/packages.lock.json src/Grimarr/
+RUN dotnet restore src/Grimarr/Grimarr.csproj --locked-mode
 COPY src/ src/
 RUN dotnet publish src/Grimarr/Grimarr.csproj -c Release -o /out --no-restore
 

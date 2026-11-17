@@ -100,7 +100,7 @@ Do not induce full-disk or permission failures on your real library. Those need 
 
 ## Rollback
 
-Pause automation before switching back. Create a rollback override selecting the retained image, then recreate only Grimarr using your original Compose configuration:
+Pause automation before switching back. For a rollback across the security-hardening upgrade, stop Grimarr and restore its corresponding **complete pre-upgrade config backup, including encryption keys, into a fresh directory**. Preserve ownership and point the config mount at that restored directory before starting the older image. The newer identifier encryption is not understood by older binaries, so an image-only rollback is insufficient. Keep the newer config separately. Then create a rollback override selecting the retained image and recreate only Grimarr using the restored config:
 
 ```bash
 cat > rollback.override.yml <<'YAML'
@@ -123,7 +123,8 @@ dotnet run --project tests/Grimarr.Tests --no-restore
 dotnet build src/Grimarr -c Release --no-restore
 dotnet list tests/Grimarr.Tests package --include-transitive --vulnerable --no-restore
 cd frontend
-npm ci
+npm ci --ignore-scripts
+npm audit --audit-level=high
 npm run build
 npx playwright install chromium --with-deps
 cd ..

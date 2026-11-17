@@ -16,7 +16,7 @@ public sealed class Integrations : IDisposable
     }
     public static HttpClient Client(Connection connection, string? header = null)
     {
-        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = BaseUrl(connection.Url), Timeout = TimeSpan.FromSeconds(45) };
+        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = BaseUrl(connection.Url), Timeout = TimeSpan.FromSeconds(45),MaxResponseContentBufferSize=16*1024*1024 };
         if (header == "bearer") client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", connection.ApiKey);
         else if (header != null) client.DefaultRequestHeaders.Add(header, connection.ApiKey);
         return client;
@@ -106,16 +106,17 @@ public sealed class Integrations : IDisposable
         if (url.GetLeftPart(UriPartial.Authority) != baseUri.GetLeftPart(UriPartial.Authority) || !url.AbsolutePath.StartsWith(baseUri.AbsolutePath, StringComparison.Ordinal))
             throw new InvalidOperationException("Release has no Prowlarr proxy download URL or magnet.");
         using var client = Client(settings.Prowlarr, "X-Api-Key");
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         if ((int)response.StatusCode is >= 300 and < 400 && response.Headers.Location?.Scheme == "magnet")
         { var location = response.Headers.Location.ToString(); return (TorrentIdentity.MagnetHash(location), null, location); }
         response.EnsureSuccessStatusCode();
         const int maximum = 16 * 1024 * 1024;
         if (response.Content.Headers.ContentLength > maximum) throw new InvalidOperationException("Torrent metadata exceeds 16 MB.");
-        using var stream = await response.Content.ReadAsStreamAsync(ct); using var buffer = new MemoryStream();
+        using var stream = await response.Content.ReadAsStreamAsync(timeout.Token); using var buffer = new MemoryStream();
         var chunk = new byte[8192]; int count;
-        while ((count = await stream.ReadAsync(chunk, ct)) > 0) { if (buffer.Length + count > maximum) throw new InvalidOperationException("Torrent metadata exceeds 16 MB."); await buffer.WriteAsync(chunk.AsMemory(0,count), ct); }
-        var bytes = buffer.ToArray(); return (TorrentIdentity.Hash(bytes), bytes, null);
+        while ((count = await stream.ReadAsync(chunk, timeout.Token)) > 0) { if (buffer.Length + count > maximum) throw new InvalidOperationException("Torrent metadata exceeds 16 MB."); await buffer.WriteAsync(chunk.AsMemory(0,count), timeout.Token); }
+        var bytes = buffer.ToArray(); return (TorrentIdentity.ValidateFile(bytes).Hash, bytes, null);
     }
     public static string Text(JsonElement element, string key) => element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
     public static int Number(JsonElement element, string key) => element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : 0;

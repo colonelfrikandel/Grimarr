@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Grimarr;
 
@@ -50,6 +51,8 @@ public static class TorrentIdentity
         }
         bool Segment(object? value) => value is byte[] bytes && bytes.Length>0 && !bytes.Any(b=>b==0 || b=='/' || b=='\\') && Encoding.Latin1.GetString(bytes) is not ("." or "..");
         if (Read(0) is not Dictionary<string,object> root || cursor!=data.Length || !root.TryGetValue("info",out var raw) || raw is not Dictionary<string,object> info) throw Invalid();
+        bool Symlink(Dictionary<string,object> node)=>node.ContainsKey("symlink path") || (node.TryGetValue("attr",out var attr) && attr is byte[] flags && flags.Contains((byte)'l'));
+        if(Symlink(info))throw new InvalidOperationException("Torrent symlink entries are not supported.");
         if (!info.TryGetValue("pieces",out var p) || p is not byte[] pieces || pieces.Length==0 || pieces.Length%20!=0)
             throw new InvalidOperationException("Only v1 or hybrid .torrent files are supported; valid v1 piece hashes are required.");
         if (!info.TryGetValue("piece length",out var pl) || pl is not long pieceLength || pieceLength<=0 || !info.TryGetValue("name",out var name) || !Segment(name)) throw Invalid();
@@ -62,6 +65,7 @@ public static class TorrentIdentity
             foreach(var entry in entries)
             {
                 if (entry is not Dictionary<string,object> f || !f.TryGetValue("length",out var len) || len is not long length || length<0 || !f.TryGetValue("path",out var path) || path is not List<object> segments || segments.Count==0 || segments.Any(s=>!Segment(s))) throw Invalid();
+                if(Symlink(f))throw new InvalidOperationException("Torrent symlink entries are not supported.");
                 if (!paths.Add(string.Join('/',segments.Cast<byte[]>().Select(Encoding.Latin1.GetString))) || length>long.MaxValue-total) throw Invalid();
                 if (f.TryGetValue("path.utf-8",out var utfPath) && (utfPath is not List<object> utfSegments || utfSegments.Count==0 || utfSegments.Any(s=>!Segment(s)))) throw Invalid();
                 total+=length;
@@ -78,9 +82,11 @@ public static class TorrentIdentity
     }
     public static string MagnetHash(string magnet)
     {
-        var match = Regex.Match(Uri.UnescapeDataString(magnet), @"(?:[?&])xt=urn:btih:([a-zA-Z0-9]+)(?:&|$)", RegexOptions.IgnoreCase);
-        if (!match.Success) throw new InvalidOperationException("Only v1 or hybrid BitTorrent magnets are supported.");
-        var value = match.Groups[1].Value;
+        if(magnet.Length>16384 || !magnet.StartsWith("magnet:?",StringComparison.OrdinalIgnoreCase) || magnet.Contains('#') || magnet.Any(char.IsControl))throw new InvalidOperationException("Provide one supported magnet link without control characters.");
+        var query=QueryHelpers.ParseQuery(magnet[7..]);
+        var identities=query.TryGetValue("xt",out var xt) ? xt.Where(x=>x?.StartsWith("urn:btih:",StringComparison.OrdinalIgnoreCase)==true).ToArray() : [];
+        if(identities.Length!=1)throw new InvalidOperationException("Provide exactly one v1 BitTorrent identity.");
+        var value=identities[0]![9..];
         if (Regex.IsMatch(value, "^[a-fA-F0-9]{40}$")) return value.ToLowerInvariant();
         if (Regex.IsMatch(value, "^[A-Z2-7]{32}$", RegexOptions.IgnoreCase))
         {

@@ -290,6 +290,11 @@ try {
   await page.getByRole('button',{name:'Retry import',exact:true}).click();
   await page.getByRole('button',{name:'Retry import',exact:true}).waitFor({state:'hidden'});
   console.log('PASS: Recovery settings persist; failure history, clear blocklist, retry release, replace and retry import controls work on mobile.');
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  fixture={...fixture,title:'<img src=x onerror="window.grimarrXss=1">',author:'<script>window.grimarrXss=1</script>',status:'wanted'};await page.reload();
+  await page.getByRole('heading',{name:fixture.title,exact:true}).waitFor();
+  assert.equal(await page.locator('img[src="x"]').count(),0);assert.equal(await page.evaluate(()=>window.grimarrXss),undefined);
+  console.log('PASS: Untrusted book metadata renders as text without HTML/script execution.');
   assert.deepEqual(errors, [], 'Browser runtime errors');
   console.log('PASS: Browser login, navigation, settings, add book, saved edition preference, poster/list switching, sort/filter controls, activity, and mobile layout. No runtime errors.');
 } catch (error) {

@@ -16,8 +16,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: dotnet restore src/Grimarr/Grimarr.csproj --locked-mode
       - run: dotnet run --project tests/Grimarr.Tests
-      - run: npm ci && npm run build
+      - run: npm ci --ignore-scripts && npm audit --audit-level=high && npm run build
         working-directory: frontend
       - run: mkdir -p src/Grimarr/wwwroot && cp -r frontend/dist/. src/Grimarr/wwwroot/
       - run: node tests/integration.mjs
@@ -25,6 +26,7 @@ jobs:
       - run: node tests/recovery.mjs
       - run: node tests/quick-add.mjs
       - run: node tests/library-availability.mjs
+      - run: node tests/security.mjs
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
       - run: node tests/ui.mjs

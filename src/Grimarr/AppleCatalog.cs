@@ -20,7 +20,7 @@ public sealed class AppleCatalog : IDisposable
     private readonly ConcurrentDictionary<string,(CatalogBook Book,DateTimeOffset Expires)> choices=new();
     public AppleCatalog(HttpClient? client=null,TimeProvider? clock=null)
     {
-        this.client=client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect=false }) { Timeout=TimeSpan.FromSeconds(20) };
+        this.client=client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect=false }) { Timeout=TimeSpan.FromSeconds(20),MaxResponseContentBufferSize=8*1024*1024 };
         this.clock=clock ?? TimeProvider.System;
     }
     public async Task<CatalogBook[]> Search(string query,CancellationToken ct)

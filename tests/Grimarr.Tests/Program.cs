@@ -141,6 +141,7 @@ finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Dele
 QuickAddChecks.Run(Check,Throws);
 await AppleCatalogChecks.Run(Check,Throws);
 LibraryChecks.Run(Check,Throws);
+await SecurityChecks.Run(Check,Throws);
 await MetadataChecks.Run(Check);
 await ImportChecks.Run(Check);
 Console.WriteLine($"\n{passed} checks passed.");

@@ -199,11 +199,11 @@ Back up the **entire config directory**, including the database and `keys/`. Sto
 
 ## Development and tests
 
-Requires .NET 10 SDK, Node.js 24, and FFmpeg (`ffprobe` on PATH). The Docker image includes FFmpeg.
+Requires .NET 10 SDK, Node.js 24, and FFmpeg (`ffmpeg` and `ffprobe` on PATH). The Docker image includes FFmpeg.
 
 ```bash
 cd frontend
-npm ci
+npm ci --ignore-scripts
 npm run build
 cd ..
 mkdir -p src/Grimarr/wwwroot
@@ -214,7 +214,7 @@ export ASPNETCORE_URLS='http://127.0.0.1:8787'
 dotnet run --project src/Grimarr
 ```
 
-For frontend development, `npm run dev` in `frontend` proxies API requests to port 8787.
+For frontend development, run the backend on port 8787 and run `npm run dev` in `frontend`. It watches source files and copies the rebuilt static frontend to the backend's `wwwroot`; refresh the browser to load changes. Production builds retain TypeScript checks and use esbuild without a separate development server.
 
 ```bash
 dotnet run --project tests/Grimarr.Tests
@@ -223,11 +223,12 @@ node tests/manual-selection.mjs
 node tests/recovery.mjs
 node tests/quick-add.mjs
 node tests/library-availability.mjs
+node tests/security.mjs
 # Install Chromium once: cd frontend && npx playwright install chromium && cd ..
 node tests/ui.mjs
 ```
 
-The integration tests start temporary loopback mock services and the real backend. They exercise authentication, search/download, deleted/errored/stalled torrents, replacement and blocklist controls, restarts, imports, and scan recovery without contacting configured services or downloading real torrents. Build the Debug backend first. Backend import checks require `ffprobe` on PATH; Node integration tests also accept `FFPROBE_DIR`. `DOTNET_EXE` can override the .NET executable. See [RELEASE_STATUS.md](RELEASE_STATUS.md) for verification results and remaining release blockers.
+The integration tests start temporary loopback mock services and the real backend. They exercise authentication, search/download, deleted/errored/stalled torrents, replacement and blocklist controls, restarts, imports, scan recovery, session rotation, request limits, private-identifier migration, and untrusted release boundaries without contacting configured services or downloading real torrents. Build the Debug backend first. Backend checks require FFmpeg on PATH; Node integration tests also accept `FFPROBE_DIR`. `DOTNET_EXE` can override the .NET executable. See [SECURITY.md](SECURITY.md) for the security boundary and security-upgrade rollback requirements, and [RELEASE_STATUS.md](RELEASE_STATUS.md) for verification results and remaining release blockers.
 
 ## Code map
 

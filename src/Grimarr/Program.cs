@@ -11,20 +11,28 @@ using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics",LogLevel.Warning);
+builder.WebHost.ConfigureKestrel(options=>{ options.AddServerHeader=false;options.Limits.MaxRequestBodySize=AppSecurity.MaximumApiBody; });
 var password = builder.Configuration["GRIMARR_PASSWORD"];
 if(string.IsNullOrWhiteSpace(password) || password.Length < 12) throw new InvalidOperationException("Set GRIMARR_PASSWORD to a password of at least 12 characters.");
 var configRoot = builder.Configuration["GRIMARR_CONFIG"] ?? Path.Combine(AppContext.BaseDirectory,"config");
-Directory.CreateDirectory(configRoot);
+AppSecurity.PrivateConfigDirectory(configRoot);
+var sessionVersion=AppSecurity.SessionVersion(password);
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(configRoot,"keys")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options => {
     options.Cookie.Name = "grimarr.session"; options.Cookie.HttpOnly = true; options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy=CookieSecurePolicy.SameAsRequest;
     options.ExpireTimeSpan = TimeSpan.FromDays(7); options.SlidingExpiration = true;
     options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = 401; return Task.CompletedTask; };
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; };
+    options.Events.OnValidatePrincipal=async context=>{
+        if(!AppSecurity.ValidSession(context.Principal?.FindFirstValue(AppSecurity.SessionClaim),sessionVersion))
+        { context.RejectPrincipal();await context.HttpContext.SignOutAsync(); }
+    };
 });
 builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(options => {
-    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter("owner-login", _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("catalog", _ => RateLimitPartition.GetFixedWindowLimiter("apple-books", _ => new FixedWindowRateLimiterOptions { PermitLimit = 15, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.RejectionStatusCode=429;
 });
@@ -33,20 +41,24 @@ var app = builder.Build();
 app.Use(async (context,next) => {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"]="camera=(), microphone=(), geolocation=()";
     context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     if(context.Request.Path.StartsWithSegments("/api"))
     {
         context.Response.Headers.CacheControl = "no-store";
+        var maximum=context.Request.Path.Value is "/api/books/quick-add" or "/api/books/quick-add/preview" ? AppSecurity.MaximumQuickAddBody : AppSecurity.MaximumApiBody;
+        if(context.Request.ContentLength>maximum) { context.Response.StatusCode=413;await context.Response.WriteAsJsonAsync(new {error="Request body exceeds this endpoint's size limit."});return; }
         if(context.Request.Method is not ("GET" or "HEAD") && context.Request.Headers["X-Grimarr"] != "1") { context.Response.StatusCode = 403; return; }
     }
     try { await next(); }
+    catch(BadHttpRequestException ex) when(!context.Response.HasStarted) { context.Response.StatusCode=ex.StatusCode;await context.Response.WriteAsJsonAsync(new {error="Invalid request or request body exceeds the endpoint limit."}); }
     catch(Exception ex) when(!context.Response.HasStarted) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(new { error = Workflow.SafeError(ex) }); }
 });
-app.UseDefaultFiles(); app.UseStaticFiles(); app.UseRateLimiter(); app.UseAuthentication(); app.UseAuthorization();
+app.UseDefaultFiles(); app.UseStaticFiles(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapPost("/api/login", async (LoginRequest input, HttpContext context) => {
     if(!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(input.Password ?? "")), SHA256.HashData(Encoding.UTF8.GetBytes(password)))) return Results.Unauthorized();
-    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner") },CookieAuthenticationDefaults.AuthenticationScheme)));
+    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner"),new Claim(AppSecurity.SessionClaim,sessionVersion) },CookieAuthenticationDefaults.AuthenticationScheme)));
     return Results.Ok();
 }).RequireRateLimiting("login");
 var api = app.MapGroup("/api").RequireAuthorization();

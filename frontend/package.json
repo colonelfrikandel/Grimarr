@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --configLoader native --host 127.0.0.1",
-    "build": "tsc -b && vite build --configLoader native",
+    "dev": "node build.mjs --watch",
+    "build": "tsc -b && node build.mjs",
     "format": "prettier --write src"
   },
   "dependencies": {
@@ -18,9 +18,8 @@
     "@playwright/test": "^1.63.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.5.0",
+    "esbuild": "^0.28.2",
     "prettier": "^3.9.7",
-    "typescript": "^5.8.0",
-    "vite": "^6.3.0"
+    "typescript": "^5.8.0"
   }
 }
