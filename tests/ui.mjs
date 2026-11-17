@@ -112,6 +112,38 @@ try {
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).settings.manualSelection === false);
   console.log('PASS: Manual setting on/off, series query, five options, multi-selection, submission and mobile layout.');
+  const quickInputs=[
+    {title:'Quick Hash Fixture',source:'a'.repeat(40)},
+    {title:'Quick Magnet Fixture',source:'magnet:?xt=urn:btih:'+'b'.repeat(40)+'&tr=https%3A%2F%2Ftracker.example%2Fprivate-ui-key'},
+    {title:'Quick Torrent Fixture',torrent:Buffer.from('d4:infod6:lengthi4e4:name8:book.mp312:piece lengthi16384e6:pieces20:abcdefghijklmnopqrstee')},
+  ];
+  await page.getByRole('button',{name:'Library',exact:true}).click();
+  for(const input of quickInputs) {
+    await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();
+    assert.equal(await page.getByRole('tab',{name:'Search with Prowlarr',exact:true}).getAttribute('aria-selected'),'true');
+    await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+    await page.getByLabel('Book title',{exact:true}).fill(input.title);
+    await page.getByLabel('Author',{exact:true}).fill('UI Test Author');
+    if(input.torrent) {
+      await page.getByRole('radio',{name:'Upload a torrent file',exact:true}).check();
+      await page.getByLabel('Torrent file',{exact:true}).setInputFiles({name:'fixture.torrent',mimeType:'application/x-bittorrent',buffer:input.torrent});
+    } else await page.getByLabel('Info hash or magnet link',{exact:true}).fill(input.source);
+    await page.screenshot({path:'test-results/quick-add-mobile.png',fullPage:true});
+    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'Quick Add overflows on mobile');
+    await page.getByRole('button',{name:'Queue download',exact:true}).click();
+    await page.getByRole('dialog').waitFor({state:'hidden'});
+    await page.getByRole('heading',{name:input.title,exact:true}).waitFor();
+  }
+  const quickBooks=(await (await page.request.get('http://127.0.0.1:8787/api/books')).json()).filter(b=>b.acquisitionMode==='quick-add');
+  assert.equal(quickBooks.length,3);assert(quickBooks.every(b=>b.status==='queued'));assert(!JSON.stringify(quickBooks).includes('private-ui-key'));
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();
+  await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  await page.getByLabel('Book title',{exact:true}).fill('Invalid Quick Add');await page.getByLabel('Author',{exact:true}).fill('UI Test Author');
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('invalid-hash');await page.getByRole('button',{name:'Queue download',exact:true}).click();
+  await page.getByText('Enter a v1 info hash or a magnet link, or upload a .torrent file. Web download URLs are not supported here.',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Search with Prowlarr',exact:true}).click();await page.getByLabel('Search audiobook catalog',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  console.log('PASS: Quick Add hash, magnet and file forms queue real records, show validation errors, preserve Prowlarr choice, and fit mobile.');
   let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,
     message:'Torrent is missing from qBittorrent.',preferences:stored.defaults,selectedRelease:{title:'Failed release'},
     failedReleases:[{title:'Failed release',reason:'Torrent is missing from qBittorrent.',at:new Date().toISOString(),blocked:true}]};

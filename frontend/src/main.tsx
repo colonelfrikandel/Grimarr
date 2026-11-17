@@ -383,6 +383,7 @@ function App() {
         <AddModal
           defaults={settings.defaults}
           manualSelection={settings.manualSelection}
+          automationEnabled={settings.automationEnabled}
           close={() => setAdd(false)}
           added={async (created) => {
             setAdd(false);
@@ -646,14 +647,17 @@ function Modal({
 function AddModal({
   defaults,
   manualSelection,
+  automationEnabled,
   close,
   added,
 }: {
   defaults: Preferences;
   manualSelection: boolean;
+  automationEnabled: boolean;
   close: () => void;
   added: (book: Book) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<"prowlarr" | "quick-add">("prowlarr");
   const [term, setTerm] = useState(""),
     [results, setResults] = useState<CatalogBook[]>([]),
     [book, setBook] = useState<CatalogBook | null>(null),
@@ -678,9 +682,14 @@ function AddModal({
   };
   return (
     <Modal title="Add audiobook" close={close}>
+      <div className="add-modes" role="tablist" aria-label="How to add an audiobook">
+        <button type="button" role="tab" aria-selected={mode === "prowlarr"} className={mode === "prowlarr" ? "primary" : "secondary"} onClick={() => { setMode("prowlarr"); setError(""); }}>Search with Prowlarr</button>
+        <button type="button" role="tab" aria-selected={mode === "quick-add"} className={mode === "quick-add" ? "primary" : "secondary"} onClick={() => { setMode("quick-add"); setError(""); }}>Quick Add</button>
+      </div>
+      {mode === "quick-add" ? <QuickAddForm automationEnabled={automationEnabled} added={added} /> : <>
       {error && <Notice text={error} />}
       <p className="muted">
-        Search the Apple Books catalog, or add a title yourself.
+        Find a title in Apple Books or enter it yourself, then search releases through Prowlarr.
       </p>
       <form className="catalog-search" onSubmit={search}>
         <label className="search">
@@ -793,8 +802,45 @@ function AddModal({
           </div>
         </form>
       )}
+      </>}
     </Modal>
   );
+}
+function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean; added: (book: Book) => Promise<void> }) {
+  const [title, setTitle] = useState(""), [author, setAuthor] = useState(""),
+    [source, setSource] = useState(""), [kind, setKind] = useState<"link" | "file">("link"),
+    [file, setFile] = useState<File | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  return <form onSubmit={async (event) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      let torrentBase64: string | undefined;
+      if (kind === "file") {
+        if (!file) throw new Error("Choose a .torrent file.");
+        if (file.size === 0 || file.size > 16 * 1024 * 1024) throw new Error("Choose a .torrent file between 1 byte and 16 MB.");
+        torrentBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader(); reader.onload = () => resolve((reader.result as string).split(",")[1]);
+          reader.onerror = () => reject(new Error("The torrent file could not be read.")); reader.readAsDataURL(file);
+        });
+      }
+      await added(await api<Book>("/books/quick-add", "POST", { title, author, source: kind === "link" ? source.trim() : undefined, torrentBase64 }));
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }}>
+    <p className="muted">Already found a release? Add its info hash, magnet link, or torrent file directly.</p>
+    {error && <Notice text={error} />}
+    <fieldset className="quick-source"><legend>Download source</legend>
+      <label><input type="radio" name="quick-source" checked={kind === "link"} onChange={() => { setKind("link"); setError(""); }} />Hash or magnet</label>
+      <label><input type="radio" name="quick-source" checked={kind === "file"} onChange={() => { setKind("file"); setError(""); }} />Upload a torrent file</label>
+    </fieldset>
+    {kind === "link" ? <Field label="Info hash or magnet link"><textarea required rows={3} maxLength={16384} value={source} onChange={e => setSource(e.target.value)} placeholder="Paste an info hash or magnet:?xt=urn:btih:…" /></Field>
+      : <Field label="Torrent file" help="Select a v1 or hybrid .torrent file, up to 16 MB."><input type="file" accept=".torrent,application/x-bittorrent" required onChange={e => setFile(e.target.files?.[0] || null)} /></Field>}
+    <div className="form-grid">
+      <Field label="Book title"><input required maxLength={250} value={title} onChange={e => setTitle(e.target.value)} /></Field>
+      <Field label="Author"><input required maxLength={200} value={author} onChange={e => setAuthor(e.target.value)} /></Field>
+    </div>
+    <p className="helper">Quick Add uses your exact release. Check its language and edition yourself. Grimarr will track the download, validate the audio, and import it into your selected Audiobookshelf library. A hash or magnet still needs peers to supply metadata and files.</p>
+    {!automationEnabled && <p className="helper">Automation is paused. This download will stay queued until you enable it in Settings.</p>}
+    <div className="modal-actions"><button className="primary" disabled={busy}><Plus size={17} />{busy ? "Adding…" : automationEnabled ? "Add download" : "Queue download"}</button></div>
+  </form>;
 }
 function BookModal({
   book,
@@ -854,7 +900,7 @@ function BookModal({
       <div className="modal-actions">
         {book.status === "download-failed" && (
           <button className="primary" disabled={busy} onClick={() => act(`/books/${book.id}/replace`)}>
-            Search for replacement
+            {book.acquisitionMode === "quick-add" ? "Search Prowlarr for replacement" : "Search for replacement"}
           </button>
         )}
         {book.canRemove && (
@@ -1360,7 +1406,7 @@ function SettingsPage({ onSaved }: { onSaved: () => Promise<void> }) {
             <input type="checkbox" checked={value.automaticFailedDownloadRecovery} onChange={(e) => change("automaticFailedDownloadRecovery", e.target.checked)} />
             <span>
               <strong>Automatically replace failed downloads</strong>
-              <small>Block missing, errored, or stalled releases and search for alternatives. Manual selection still requires your choice. Existing torrents and files are retained.</small>
+              <small>Block failed Prowlarr releases and search for alternatives. Manual selection still requires your choice. Quick Add waits for an explicit retry or replacement choice. Existing torrents and files are retained.</small>
             </span>
           </label>
           <Field label="Stall timeout (minutes)" help="Fail an actively tracked download after this long without progress. Use 0 to disable, or 15–10080. Paused and queued torrents are excluded.">

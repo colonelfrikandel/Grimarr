@@ -1409,7 +1409,7 @@ main { margin-left: 230px; padding-top: 64px; background: transparent; }
 .progress { background: #2c303c; }
 .progress span { background: #9cacef; }
 
-.field input, .field select, .mapping input, .search input {
+.field input, .field select, .field textarea, .mapping input, .search input {
   border-color: #343846;
   background: #0e1016;
   color: #eef0f7;
@@ -1423,6 +1423,12 @@ main { margin-left: 230px; padding-top: 64px; background: transparent; }
 .field > label, .check-field { color: #c5cad9; }
 .check-field input, .automation-toggle input { accent-color: var(--accent); }
 .catalog-item strong { color: var(--accent); }
+.add-modes { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+.quick-source { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 0 0 18px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.quick-source legend { font-size: 13px; color: var(--muted); }
+.quick-source label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.quick-source input { accent-color: var(--accent); }
+.field textarea { font: inherit; padding: 10px; resize: vertical; width: 100%; min-width: 0; margin-bottom: 18px; }
 .activity-item { border-bottom-color: var(--line); }
 .modal-backdrop { background: rgba(3, 4, 7, 0.82); backdrop-filter: blur(8px); }
 .modal { background: #151821; color: #eef0f7; border: 1px solid #303440; border-radius: 16px; }

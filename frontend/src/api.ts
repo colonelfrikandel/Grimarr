@@ -34,6 +34,7 @@ export type Book = {
   author: string;
   cover: string;
   status: string;
+  acquisitionMode: "prowlarr" | "quick-add";
   suspended: boolean;
   canRemove: boolean;
   progress: number;

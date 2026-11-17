@@ -138,5 +138,6 @@ try
     using(var db=new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(root,"grimarr.db")}")) {db.Open();using var cmd=db.CreateCommand();cmd.CommandText="SELECT json FROM books";Check("Download credential not stored in plaintext",!((string)cmd.ExecuteScalar()!).Contains("private-download-key"));}
 }
 finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(root,true); }
+QuickAddChecks.Run(Check,Throws);
 await ImportChecks.Run(Check);
 Console.WriteLine($"\n{passed} checks passed.");

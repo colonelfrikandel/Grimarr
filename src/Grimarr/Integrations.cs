@@ -69,6 +69,13 @@ public sealed class Integrations : IDisposable
     }
     public async Task<(string Hash, byte[]? Torrent, string? Magnet)> Prepare(Settings settings, Release release, CancellationToken ct)
     {
+        if (release.TorrentData != null)
+        {
+            var uploaded=Convert.FromBase64String(release.TorrentData);
+            var validated=TorrentIdentity.ValidateFile(uploaded);
+            if (!validated.Hash.Equals(release.InfoHash,StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Saved torrent identity changed; download stopped for review.");
+            return (validated.Hash,uploaded,null);
+        }
         var magnet = !string.IsNullOrEmpty(release.MagnetUrl) ? release.MagnetUrl : release.DownloadUrl?.StartsWith("magnet:") == true ? release.DownloadUrl : null;
         if (magnet != null) return (TorrentIdentity.MagnetHash(magnet), null, magnet);
         var baseUri = BaseUrl(settings.Prowlarr.Url);

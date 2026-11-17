@@ -43,6 +43,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         if (book.Status != "download-failed") throw new InvalidOperationException("Only a failed download can be replaced. Resolve import or connection errors and retry instead.");
         // History and the new search state are one persisted book update.
         book.Status="wanted"; book.SelectedRelease=null; book.TorrentHash=null; book.Progress=0;
+        book.AcquisitionMode="prowlarr";
         book.FailureReason=null; book.MissingSince=null; book.LastProgressAt=null; book.LastDownloadCheck=null;
         book.DownloadPath=null; book.NextSearch=DateTimeOffset.MinValue; book.Suspended=false;
         book.Message="Searching for a replacement; failed releases remain blocked. Existing torrents and files are untouched.";
@@ -116,7 +117,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
             {
                 if (book.Status == "download-failed")
                 {
-                    if (settings.AutomaticFailedDownloadRecovery && !settings.ManualSelection) Replace(book);
+                    if (settings.AutomaticFailedDownloadRecovery && !settings.ManualSelection && book.AcquisitionMode!="quick-add") Replace(book);
                     else continue;
                 }
                 if(book.NextSearch > DateTimeOffset.UtcNow) continue;
@@ -137,6 +138,11 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
     {
         if(book.Status == "wanted")
         {
+            if (string.IsNullOrWhiteSpace(settings.Prowlarr.ApiKey))
+            {
+                book.Message="Configure Prowlarr in Settings to search releases, or add a download with Quick Add.";
+                book.NextSearch=DateTimeOffset.UtcNow.AddMinutes(settings.SearchIntervalMinutes);store.Save(book);return;
+            }
             if (settings.ManualSelection)
             {
                 book.Message = "Waiting for you to search and choose releases.";

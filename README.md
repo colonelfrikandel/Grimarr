@@ -8,6 +8,7 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 
 - Password-protected responsive web interface: library, queue, activity, settings.
 - Optional **Choose releases manually** setting: search a series, select up to ten results, and track each selected release separately. With this setting off, the best eligible match downloads automatically.
+- **Quick Add** accepts v1 info hashes, magnet links, and v1/hybrid `.torrent` uploads alongside the existing Prowlarr search.
 - Seerr-inspired dark media interface with poster/list views, sorting, filtering, and responsive navigation.
 - Apple Books/iTunes audiobook catalog search and manual title/author entry.
 - Global and per-book preferences: standard/full-cast/either narration, abridged/unabridged/either, minimum seeders, M4B preference.
@@ -128,6 +129,19 @@ Choose your defaults, enable automation, and save. Add a book to search on the n
 
 For manual downloads, turn on **Settings → Profiles → Choose releases manually**. New books wait for your choice. Open a book, edit **Release search** if needed (for example, `Mage Tank` rather than a catalog subtitle), and click **Search download options**. Check one or more results and click **Download selected**. Each choice becomes a separate tracked entry, named after its release; the first replaces the original waiting entry. On a completed book, **Choose more downloads** adds new entries and preserves the existing book. Already tracked releases are rejected. Choices can override automatic title/edition/language/seeder matching, so inspect the displayed warnings. Torrent validation and Audiobook Bay detail verification still apply. A multi-book pack stays a single download; this does not split packs. Results expire after 30 minutes or a server restart; search again if needed. Existing downloads keep progressing when you switch modes. If searching/importing is disabled, selections are queued until it is enabled.
 
+### Quick Add or Prowlarr search
+
+Open **Add audiobook** and choose one of two options:
+
+- **Search with Prowlarr:** find a book in Apple Books or enter its title/author, then use Grimarr's automatic matching or manual release choices as before.
+- **Quick Add:** paste a 40-character hexadecimal or 32-character base32 v1 info hash, paste a magnet link, or upload a v1/hybrid `.torrent` file up to 16 MB. Enter the title and author used to organise the imported book, then click **Add download** (or **Queue download** while automation is paused).
+
+Quick Add uses the exact release you provide, independently of the manual-selection setting. Check the language, edition, and contents yourself; Prowlarr matching is bypassed for that download. Grimarr applies the existing `grimarr` category, tracking tag, configured save path, audio validation, staged import, and Audiobookshelf scan workflow. Known duplicate torrent identities and existing title/author entries are rejected. Uploaded metadata and private magnet parameters are encrypted in the config database and omitted from public API responses.
+
+Prowlarr is optional for Quick Add. Audiobookshelf and the download/storage settings are still required for the automated workflow. A hash/magnet may wait for peers to supply metadata; supplying a `.torrent` file avoids that metadata lookup but does not supply missing audio pieces or seeders. Generic HTTP download links and pure-v2 torrents are not supported.
+
+Failed Quick Add releases wait for **Retry this release**, or an explicit **Search Prowlarr for replacement**. They do not silently switch to Prowlarr when automatic failed-download replacement is enabled. A replacement search explicitly changes that book to the Prowlarr workflow.
+
 ### Failed downloads and import recovery
 
 Missing torrents get a two-minute confirmation window before becoming **Download failed**. qBittorrent `error` and `missingFiles` states also fail explicitly. Active downloads with no progress fail after **Settings → Profiles → Stall timeout** (default 1440 minutes). Set this to 0 to disable, or 15–10080 minutes. Paused/stopped, queued, checking, moving, and allocating torrents do not count toward the stall timer. Service outages retry without blocking a release.
@@ -187,6 +201,7 @@ dotnet run --project tests/Grimarr.Tests
 node tests/integration.mjs
 node tests/manual-selection.mjs
 node tests/recovery.mjs
+node tests/quick-add.mjs
 # Install Chromium once: cd frontend && npx playwright install chromium && cd ..
 node tests/ui.mjs
 ```

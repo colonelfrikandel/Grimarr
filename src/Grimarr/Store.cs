@@ -30,7 +30,9 @@ public sealed class Store
     private Connection Decode(Connection connection) => connection with { ApiKey = Unprotect(connection.ApiKey), Password = Unprotect(connection.Password) };
     private string Protect(string value) => value.Length == 0 ? "" : "protected:" + protector.Protect(value);
     private string Unprotect(string value) => value.StartsWith("protected:",StringComparison.Ordinal) ? protector.Unprotect(value[10..]) : value;
-    public List<Book> Books() => Read<Book>("SELECT json FROM books").Select(b => b with { SelectedRelease = b.SelectedRelease == null ? null : b.SelectedRelease with { DownloadUrl = b.SelectedRelease.DownloadUrl == null ? null : Unprotect(b.SelectedRelease.DownloadUrl), MagnetUrl = b.SelectedRelease.MagnetUrl == null ? null : Unprotect(b.SelectedRelease.MagnetUrl) } }).OrderByDescending(b => b.AddedAt).ToList();
+    private Release Encode(Release r) => r with { DownloadUrl=r.DownloadUrl==null ? null : Protect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Protect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Protect(r.TorrentData) };
+    private Release Decode(Release r) => r with { DownloadUrl=r.DownloadUrl==null ? null : Unprotect(r.DownloadUrl), MagnetUrl=r.MagnetUrl==null ? null : Unprotect(r.MagnetUrl), TorrentData=r.TorrentData==null ? null : Unprotect(r.TorrentData) };
+    public List<Book> Books() => Read<Book>("SELECT json FROM books").Select(b => b with { SelectedRelease = b.SelectedRelease == null ? null : Decode(b.SelectedRelease) }).OrderByDescending(b => b.AddedAt).ToList();
     private List<T> Read<T>(string sql)
     {
         using var db = Open(); using var cmd = db.CreateCommand(); cmd.CommandText = sql;
@@ -39,7 +41,7 @@ public sealed class Store
         return result;
     }
     public void Save(Settings settings) => Write("INSERT INTO settings VALUES (1,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$json", JsonSerializer.Serialize(settings with { Prowlarr = Encode(settings.Prowlarr), Qbittorrent = Encode(settings.Qbittorrent), Audiobookshelf = Encode(settings.Audiobookshelf) }, Json)));
-    public void Save(Book book) => Write("INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$id", book.Id), ("$json", JsonSerializer.Serialize(book with { SelectedRelease = book.SelectedRelease == null ? null : book.SelectedRelease with { DownloadUrl = book.SelectedRelease.DownloadUrl == null ? null : Protect(book.SelectedRelease.DownloadUrl), MagnetUrl = book.SelectedRelease.MagnetUrl == null ? null : Protect(book.SelectedRelease.MagnetUrl) } }, Json)));
+    public void Save(Book book) => Write("INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json", ("$id", book.Id), ("$json", JsonSerializer.Serialize(book with { SelectedRelease = book.SelectedRelease == null ? null : Encode(book.SelectedRelease) }, Json)));
     public void Log(Book book, string message) => Write("INSERT INTO activity(at,bookId,title,message) VALUES ($at,$id,$title,$message)", ("$at", DateTimeOffset.UtcNow.ToString("O")), ("$id", book.Id), ("$title", book.Title), ("$message", message));
     public void Remove(Book book)
     {
@@ -53,7 +55,7 @@ public sealed class Store
         foreach (var book in books)
         {
             var release = book.SelectedRelease!;
-            var protectedBook = book with { SelectedRelease = release with { DownloadUrl = release.DownloadUrl == null ? null : Protect(release.DownloadUrl), MagnetUrl = release.MagnetUrl == null ? null : Protect(release.MagnetUrl) } };
+            var protectedBook = book with { SelectedRelease = Encode(release) };
             using var cmd = db.CreateCommand(); cmd.Transaction = transaction;
             cmd.CommandText = "INSERT INTO books VALUES ($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json";
             cmd.Parameters.AddWithValue("$id",book.Id); cmd.Parameters.AddWithValue("$json",JsonSerializer.Serialize(protectedBook,Json)); cmd.ExecuteNonQuery();

@@ -31,6 +31,7 @@ public record Book
     public string CatalogId { get; init; } = "";
     public Preferences Preferences { get; init; } = new();
     public string Status { get; set; } = "wanted";
+    public string AcquisitionMode { get; set; } = "prowlarr";
     public string Message { get; set; } = "Waiting for search";
     public double Progress { get; set; }
     public bool Suspended { get; set; }
@@ -60,6 +61,7 @@ public record Release
     public string? DownloadUrl { get; init; }
     public string? MagnetUrl { get; init; }
     public string? InfoHash { get; init; }
+    public string? TorrentData { get; init; }
     public int Seeders { get; init; }
     public bool SeedersKnown { get; init; } = true;
     public string? MetadataError { get; init; }

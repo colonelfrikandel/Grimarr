@@ -23,6 +23,7 @@ jobs:
       - run: node tests/integration.mjs
       - run: node tests/manual-selection.mjs
       - run: node tests/recovery.mjs
+      - run: node tests/quick-add.mjs
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
       - run: node tests/ui.mjs

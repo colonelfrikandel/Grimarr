@@ -53,7 +53,7 @@ api.MapPut("/settings", async (Settings input, Store store, Workflow workflow, C
     await workflow.Gate.WaitAsync(ct);
     try {
         var old = store.Settings(); var settings = Merge(input,old); ValidateSettings(settings); store.Save(settings);
-        if (old.ManualSelection != settings.ManualSelection)
+        if (old.ManualSelection != settings.ManualSelection || (string.IsNullOrWhiteSpace(old.Prowlarr.ApiKey) && !string.IsNullOrWhiteSpace(settings.Prowlarr.ApiKey)))
             foreach (var book in store.Books().Where(b=>b.Status=="wanted")) { book.NextSearch=DateTimeOffset.MinValue; store.Save(book); }
         if (!old.AutomationEnabled && settings.AutomationEnabled)
             foreach (var book in store.Books().Where(b=>b.Status=="downloading")) { book.LastDownloadCheck=null; book.MissingSince=null; store.Save(book); }
@@ -75,6 +75,25 @@ api.MapPost("/connections/{service}/test", async (string service, Settings input
     return Results.Ok(new { message = "Connected" });
 });
 api.MapGet("/books", (Store store) => store.Books().Select(PublicBook));
+api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflow workflow, CancellationToken ct) => {
+    const long maximumBody=24*1024*1024;
+    if (context.Request.ContentLength>maximumBody) return Results.Json(new { error="Torrent upload is too large (16 MB maximum file size)." },statusCode:413);
+    var limit=context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+    if (limit is { IsReadOnly:false }) limit.MaxRequestBodySize=maximumBody;
+    var input=await context.Request.ReadFromJsonAsync<QuickAddInput>(ct);
+    if (input==null) return Results.BadRequest(new { error="Enter the book details and a download source." });
+    await workflow.Gate.WaitAsync(ct);
+    try {
+        var book=QuickAdd.Create(input,store.Settings().Defaults); var books=store.Books();
+        if (books.Any(b=>b.Title.Equals(book.Title,StringComparison.OrdinalIgnoreCase) && b.Author.Equals(book.Author,StringComparison.OrdinalIgnoreCase)))
+            return Results.Conflict(new { error="This book is already in your library. Open it to retry or choose a replacement." });
+        var hash=book.SelectedRelease!.InfoHash!;
+        if (books.Any(b=>hash.Equals(b.TorrentHash,StringComparison.OrdinalIgnoreCase) || hash.Equals(b.SelectedRelease?.InfoHash,StringComparison.OrdinalIgnoreCase)))
+            return Results.Conflict(new { error="This torrent is already tracked by Grimarr." });
+        store.Save(book);store.Log(book,"Added through Quick Add; exact release queued for download");return Results.Ok(PublicBook(book));
+    }
+    finally { workflow.Gate.Release(); }
+});
 api.MapPost("/books", async (BookInput input, Store store, Workflow workflow, CancellationToken ct) => {
     if(string.IsNullOrWhiteSpace(input.Title) || string.IsNullOrWhiteSpace(input.Author) || input.Title.Length > 250 || input.Author.Length > 200) return Results.BadRequest(new { error = "Enter a title and author (maximum 250 and 200 characters)." });
     if(input.Cover.Length > 2000 || input.CatalogId.Length > 200) return Results.BadRequest();
@@ -166,7 +185,7 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.SeedersKnown, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
-static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
+static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Preferences, book.Status, book.AcquisitionMode, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
 static object PublicSettings(Settings settings) => new { settings = settings with { Prowlarr = settings.Prowlarr with { ApiKey = "", Password = "" }, Qbittorrent = settings.Qbittorrent with { ApiKey = "", Password = "" }, Audiobookshelf = settings.Audiobookshelf with { ApiKey = "", Password = "" } }, secrets = new { prowlarr = settings.Prowlarr.ApiKey.Length > 0, qbittorrent = settings.Qbittorrent.Password.Length > 0, audiobookshelf = settings.Audiobookshelf.ApiKey.Length > 0 } };
 static Settings Merge(Settings input, Settings old) => input with {
     Prowlarr = input.Prowlarr with { ApiKey = string.IsNullOrEmpty(input.Prowlarr.ApiKey) ? old.Prowlarr.ApiKey : input.Prowlarr.ApiKey },
@@ -179,7 +198,8 @@ static void ValidatePreferences(Preferences preferences)
 }
 static void ValidateSettings(Settings settings)
 {
-    Integrations.BaseUrl(settings.Prowlarr.Url); Integrations.BaseUrl(settings.Qbittorrent.Url); Integrations.BaseUrl(settings.Audiobookshelf.Url);
+    if (!string.IsNullOrWhiteSpace(settings.Prowlarr.Url) || !string.IsNullOrWhiteSpace(settings.Prowlarr.ApiKey)) Integrations.BaseUrl(settings.Prowlarr.Url);
+    Integrations.BaseUrl(settings.Qbittorrent.Url); Integrations.BaseUrl(settings.Audiobookshelf.Url);
     ValidatePreferences(settings.Defaults);
     if(settings.SearchIntervalMinutes is < 15 or > 10080) throw new InvalidOperationException("Search interval must be between 15 minutes and seven days.");
     if(settings.StallTimeoutMinutes != 0 && settings.StallTimeoutMinutes is < 15 or > 10080) throw new InvalidOperationException("Stall timeout must be zero (disabled), or between 15 minutes and seven days.");
@@ -190,7 +210,7 @@ static void ValidateSettings(Settings settings)
     if(library.StartsWith(downloads,StringComparison.OrdinalIgnoreCase) || downloads.StartsWith(library,StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Download and library roots must be separate, non-nested directories.");
     foreach(var mapping in settings.PathMappings) if(string.IsNullOrWhiteSpace(mapping.Remote) || !Path.IsPathFullyQualified(mapping.Local)) throw new InvalidOperationException("Path mappings need a remote prefix and an absolute local path.");
     if(settings.IndexerIds.Any(id => id <= 0)) throw new InvalidOperationException("Indexer IDs must be positive numbers.");
-    if(settings.AutomationEnabled && (string.IsNullOrWhiteSpace(settings.Prowlarr.ApiKey) || string.IsNullOrWhiteSpace(settings.LibraryId) || string.IsNullOrWhiteSpace(settings.Audiobookshelf.ApiKey))) throw new InvalidOperationException("Configure Prowlarr and Audiobookshelf credentials and select a library before enabling automation.");
+    if(settings.AutomationEnabled && (string.IsNullOrWhiteSpace(settings.LibraryId) || string.IsNullOrWhiteSpace(settings.Audiobookshelf.ApiKey))) throw new InvalidOperationException("Configure Audiobookshelf credentials and select a library before enabling automation. Prowlarr is optional for Quick Add.");
 }
 record LoginRequest(string Password);
 record BookInput(string Title, string Author, string Cover = "", string CatalogId = "", Preferences? Preferences = null);

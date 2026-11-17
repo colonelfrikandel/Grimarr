@@ -132,6 +132,7 @@ cp -r frontend/dist/. src/Grimarr/wwwroot/
 node tests/integration.mjs
 node tests/manual-selection.mjs
 node tests/recovery.mjs
+node tests/quick-add.mjs
 node tests/ui.mjs
 ```
 
