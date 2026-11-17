@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
+import {libraryItems} from './library-fixture.mjs';
 const root=await mkdtemp(path.join(os.tmpdir(),'grimarr-quick-')),config=path.join(root,'config'),downloads=path.join(root,'downloads'),library=path.join(root,'library');
 await Promise.all([config,downloads,library].map(p=>mkdir(p)));
 const frame=Buffer.alloc(417);Buffer.from([0xff,0xfb,0x90,0x64]).copy(frame);const audio=Buffer.concat(Array.from({length:60},()=>frame));
@@ -29,6 +30,7 @@ const mock=http.createServer(async(req,res)=>{
  }
  if(u.pathname==='/api/v2/torrents/info'){const j=jobs.get(u.searchParams.get('hashes'));return json(j?[j]:[]);}
  if(u.pathname==='/api/libraries/fixture/scan'){scans++;return json({success:true});}
+ if(u.pathname==='/api/libraries/fixture/items')return json(scans>0 ? await libraryItems(library) : {results:[],total:0});
  if(u.pathname==='/api/v1/search'){searches++;return json([{guid:'normal',title:'Catalog Fixture - Fixture Author English Unabridged MP3',indexer:'Fixture',indexerId:1,protocol:'torrent',seeders:20,size:audio.length,magnetUrl:'magnet:?xt=urn:btih:'+'d'.repeat(40)}]);}
  res.statusCode=404;json({error:u.pathname});
 });

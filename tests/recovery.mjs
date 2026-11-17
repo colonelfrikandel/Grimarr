@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import {libraryItems} from './library-fixture.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
@@ -33,6 +34,7 @@ const mock=http.createServer(async(req,res)=>{
   }
   if(url.pathname==='/api/v2/torrents/info') {const t=torrents.get(url.searchParams.get('hashes'));return json(t?[t]:[]);}
   if(url.pathname==='/api/libraries/fixture/scan') {scans++;return json({success:true});}
+  if(url.pathname==='/api/libraries/fixture/items')return json(scans>0 ? await libraryItems(library) : {results:[],total:0});
   // Any deletion API would be a test failure.
   res.statusCode=404;json({error:'Unexpected mock route '+url.pathname});
 });

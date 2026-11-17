@@ -34,6 +34,8 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
             book.Message="Retrying the same release; existing torrent will be tracked if present";
         }
         if (book.Status == "import-failed") { book.Status="import-pending"; book.Message="Retrying import"; }
+        if (book.Status=="available" && book.ImportedPath!=null && book.AudiobookshelfItemId==null) { book.Status="indexing";book.Message="Checking the previously imported directory in Audiobookshelf."; }
+        if (book.Status=="indexing") { book.Status="scan-pending";book.Message="Requesting a new Audiobookshelf scan and checking indexing."; }
         book.NextSearch=DateTimeOffset.MinValue; book.Suspended=false;
         book.LastProgressAt=DateTimeOffset.UtcNow; book.LastDownloadCheck=null;
         store.Save(book); store.Log(book,"Retry requested");
@@ -48,6 +50,39 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         book.DownloadPath=null; book.NextSearch=DateTimeOffset.MinValue; book.Suspended=false;
         book.Message="Searching for a replacement; failed releases remain blocked. Existing torrents and files are untouched.";
         store.Save(book); store.Log(book,book.Message);
+    }
+    public async Task<bool> CheckExisting(Settings settings,Book book,CancellationToken ct)
+    {
+        if(book.DuplicateOverrideLibraryId.Length>0 && book.DuplicateOverrideLibraryId==settings.LibraryId)return true;
+        var matches=LibraryAvailability.Matches(book,await integrations.LibraryBooks(settings,ct));
+        if(matches.Length==0) { book.LibraryMatches=[];return true; }
+        book.LibraryResumeStatus=book.Status;book.Status="library-review";book.LibraryMatches=matches;
+        book.Message="Possible existing audiobook found in Audiobookshelf. Review the matches before downloading.";
+        store.Save(book);store.Log(book,book.Message);return false;
+    }
+    public async Task ReviewLibrary(Settings settings,Book book,string action,string? itemId,CancellationToken ct)
+    {
+        if(book.Status!="library-review" || book.TorrentHash!=null || book.ImportedPath!=null)throw new InvalidOperationException("Only a held download can resolve existing-library matches.");
+        if(action=="download-anyway")
+        {
+            book.DuplicateOverrideLibraryId=settings.LibraryId;book.LibraryMatches=[];book.Status=book.LibraryResumeStatus;
+            book.Message="Existing-library warning reviewed; downloading another copy was explicitly requested.";
+        }
+        else if(action=="use-existing")
+        {
+            var matches=LibraryAvailability.Matches(book,await integrations.LibraryBooks(settings,ct));
+            if(itemId==null || !matches.Any(m=>m.Id==itemId))throw new InvalidOperationException("This Audiobookshelf match is no longer available. Check again before choosing.");
+            book.AudiobookshelfItemId=itemId;book.VerifiedLibraryId=settings.LibraryId;book.Status="available";book.Progress=1;book.LibraryMatches=[];
+            book.Message="Existing audiobook confirmed in Audiobookshelf. No torrent downloaded or files imported.";
+        }
+        else if(action=="recheck")
+        {
+            book.Status=book.LibraryResumeStatus;
+            if(!await CheckExisting(settings,book,ct))return;
+            book.Message="No existing match found. Acquisition can continue.";
+        }
+        else throw new InvalidOperationException("Choose an existing item, check again, or explicitly download another copy.");
+        book.NextSearch=DateTimeOffset.MinValue;store.Save(book);store.Log(book,book.Message);
     }
     public static bool CanChoose(Release release) => !string.IsNullOrWhiteSpace(release.Title) && release.Protocol.Equals("torrent",StringComparison.OrdinalIgnoreCase)
         && release.Size > 0 && (!string.IsNullOrWhiteSpace(release.MagnetUrl) || !string.IsNullOrWhiteSpace(release.DownloadUrl) || AudiobookBay.IsDetailUrl(release.Guid));
@@ -85,6 +120,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         }
         if (releases.Select(r=>(r.IndexerId,r.Guid)).Distinct().Count() != releases.Count) throw new InvalidOperationException("The same release was selected more than once.");
         await integrations.VerifyChoices(book,releases,ct);
+        if(!keepOriginal && !await CheckExisting(store.Settings(),book,ct))throw new InvalidOperationException("Possible existing audiobook found. Review existing-library matches before selecting downloads.");
         foreach (var release in releases)
             if (release.MetadataError is { Length: > 0 }) throw new InvalidOperationException(release.MetadataError);
         for (int i=0;i<releases.Count;i++)
@@ -99,7 +135,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         var selectedBooks = releases.Select((release,i)=>new Book {
             Id=i==0 && !keepOriginal ? book.Id : Guid.NewGuid().ToString("N"), Title=release.Title[..Math.Min(release.Title.Length,250)], Author=book.Author,
             Preferences=book.Preferences, Status="queued", Message="Manually selected; queued for download", SelectedRelease=release,
-            FailedReleases=[..book.FailedReleases]
+            FailedReleases=[..book.FailedReleases],DuplicateOverrideLibraryId=book.DuplicateOverrideLibraryId
         }).ToList();
         store.SaveSelection(selectedBooks);
         foreach(var id in choices.Where(c=>c.Value.BookId==book.Id).Select(c=>c.Key).ToArray()) choices.Remove(id);
@@ -113,7 +149,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         try
         {
             var settings = store.Settings(); if(!settings.AutomationEnabled) return;
-            foreach(var book in store.Books().Where(b => b.Status is not ("available" or "import-failed") && !b.Suspended))
+            foreach(var book in store.Books().Where(b => b.Status is not ("available" or "import-failed" or "library-review") && !b.Suspended))
             {
                 if (book.Status == "download-failed")
                 {
@@ -136,6 +172,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
     }
     private async Task Advance(Settings settings, Book book, CancellationToken ct)
     {
+        if(book.Status is "wanted" or "queued" && book.TorrentHash==null && !await CheckExisting(settings,book,ct))return;
         if(book.Status == "wanted")
         {
             if (string.IsNullOrWhiteSpace(settings.Prowlarr.ApiKey))
@@ -217,7 +254,21 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         if(book.Status == "scan-pending")
         {
             await integrations.Scan(settings,ct);
-            book.Status = "available"; book.Message = "Imported. Audiobookshelf scan requested."; book.Progress = 1; store.Save(book); store.Log(book,book.Message);
+            book.Status="indexing";book.Message="Files imported; Audiobookshelf scan requested. Waiting for confirmed indexing.";store.Save(book);store.Log(book,book.Message);
+        }
+        if(book.Status=="indexing")
+        {
+            var indexed=LibraryAvailability.Imported(settings,book,await integrations.LibraryBooks(settings,ct));
+            if(indexed.Length==1)
+            {
+                book.Status="available";book.AudiobookshelfItemId=indexed[0].Id;book.VerifiedLibraryId=settings.LibraryId;
+                book.Message="Confirmed available in Audiobookshelf.";book.Progress=1;store.Save(book);store.Log(book,book.Message);
+            }
+            else
+            {
+                book.Message=indexed.Length>1 ? "Multiple indexed items share the imported directory. Review Audiobookshelf before continuing." : "Files imported; scan requested. Audiobookshelf has not indexed this imported directory yet. Check library paths and retry if needed.";
+                book.NextSearch=DateTimeOffset.UtcNow.AddSeconds(30);store.Save(book);
+            }
         }
     }
     private void FailDownload(Book book, string reason)

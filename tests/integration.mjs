@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import {libraryItems} from './library-fixture.mjs';
 const root=await mkdtemp(path.join(os.tmpdir(),'grimarr-integration-'));
 const config=path.join(root,'config'),downloads=path.join(root,'downloads'),library=path.join(root,'audiobooks');
 await Promise.all([config,downloads,library].map(p=>mkdir(p,{recursive:true})));
@@ -27,6 +28,7 @@ const mock=http.createServer(async(req,res)=>{
  if(url.pathname.startsWith('/api/v2/'))assert(req.headers.cookie?.includes('SID=test'),'qBittorrent SID cookie missing');
  if(url.pathname==='/api/v1/system/status')return json({version:'fixture'});
  if(url.pathname==='/api/libraries')return json({libraries:[{id:'fixture-library',name:'Audiobooks',mediaType:'book'}]});
+ if(url.pathname==='/api/libraries/fixture-library/items')return json(scans>=2 ? await libraryItems(library) : {results:[],total:0});
  if(url.pathname==='/api/libraries/fixture-library/scan'){scans++;if(scans===1){res.statusCode=503;return json({error:'temporary failure'});}return json({success:true});}
  if(url.pathname==='/api/v1/search'){searches++;assert.equal(req.headers['x-api-key'],'indexer-secret');return json([{guid:'fixture',title:'J R R Tolkien - The Hobbit English Unabridged MP3',indexer:'Test indexer',indexerId:1,protocol:'torrent',downloadUrl:`http://127.0.0.1:${mock.address().port}/1/download?apikey=indexer-secret`,seeders:20,size:audio.length}]);}
  if(url.pathname==='/1/download'){res.setHeader('Content-Type','application/x-bittorrent');return res.end(torrent);}

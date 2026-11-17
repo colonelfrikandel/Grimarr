@@ -10,6 +10,7 @@ public record Settings
     public Connection Audiobookshelf { get; init; } = new("http://audiobookshelf:80");
     public string LibraryId { get; init; } = "";
     public string LibraryRoot { get; init; } = "/data/audiobooks";
+    public string AudiobookshelfLibraryPath { get; init; } = "";
     public string DownloadRoot { get; init; } = "/data/downloads";
     public string QbitSavePath { get; init; } = "";
     public string ImportMode { get; init; } = "hardlink-or-copy";
@@ -34,6 +35,11 @@ public record Book
     public string Genre { get; init; } = "";
     public string CatalogUrl { get; init; } = "";
     public string AppleMetadataJson { get; init; } = "";
+    public LibraryMatch[] LibraryMatches { get; set; } = [];
+    public string LibraryResumeStatus { get; set; } = "wanted";
+    public string DuplicateOverrideLibraryId { get; set; } = "";
+    public string? AudiobookshelfItemId { get; set; }
+    public string? VerifiedLibraryId { get; set; }
     public Preferences Preferences { get; init; } = new();
     public string Status { get; set; } = "wanted";
     public string AcquisitionMode { get; set; } = "prowlarr";
@@ -52,8 +58,9 @@ public record Book
     public DateTimeOffset AddedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset NextSearch { get; set; } = DateTimeOffset.MinValue;
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool CanRemove => Status is "wanted" or "queued" && string.IsNullOrEmpty(TorrentHash) && string.IsNullOrEmpty(ImportedPath);
+    public bool CanRemove => Status is "wanted" or "queued" or "library-review" && string.IsNullOrEmpty(TorrentHash) && string.IsNullOrEmpty(ImportedPath);
 }
+public record LibraryMatch(string Id,string Title,string Author,bool SameAuthor);
 // Never retain private download URLs in failure history.
 public record FailedRelease(string Guid, int IndexerId, string? InfoHash, string Title, string Reason, DateTimeOffset At, bool Blocked = true);
 public record Release

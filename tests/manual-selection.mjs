@@ -14,6 +14,7 @@ const releases = hashes.map((hash,i)=>({guid:`fixture-${i}`,indexerId:1,indexer:
 const mock = http.createServer(async (req,res)=>{
   const url = new URL(req.url,'http://localhost'); let body=''; for await(const chunk of req) body+=chunk;
   const json = value => {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
+  if(url.pathname==='/api/libraries/fixture/items')return json({results:[],total:0});
   if(url.pathname==='/api/v1/search') {
     queries.push(url.searchParams.get('query'));
     if(queries.at(-1).startsWith('Automatic')) return json([1,20].map((seeders,i)=>({...releases[0],guid:`auto-${i}`,title:'Automatic Test - Test Author English unabridged',seeders,magnetUrl:`magnet:?xt=urn:btih:${(i?'b':'a').repeat(40)}`})));

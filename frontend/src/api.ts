@@ -16,6 +16,7 @@ export type Settings = {
   audiobookshelf: Connection;
   libraryId: string;
   libraryRoot: string;
+  audiobookshelfLibraryPath?: string;
   downloadRoot: string;
   qbitSavePath: string;
   importMode: string;
@@ -46,6 +47,9 @@ export type Book = {
   preferences: Preferences;
   selectedRelease?: { title: string };
   importedPath?: string;
+  libraryMatches?: {id:string;title:string;author:string;sameAuthor:boolean}[];
+  audiobookshelfItemId?: string;
+  verifiedLibraryId?: string;
   failureReason?: string;
   failedReleases: { title: string; reason: string; at: string; blocked: boolean; infoHash?: string }[];
 };

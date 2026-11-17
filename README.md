@@ -148,6 +148,16 @@ Selected Apple Books artwork is downloaded into the staged import as `cover.jpg`
 
 Failed Quick Add releases wait for **Retry this release**, or an explicit **Search Prowlarr for replacement**. They do not silently switch to Prowlarr when automatic failed-download replacement is enabled. A replacement search explicitly changes that book to the Prowlarr workflow.
 
+### Existing-library checks and indexing confirmation
+
+Before a new Prowlarr or Quick Add download, Grimarr checks every page of the selected Audiobookshelf library for possible existing audiobooks. Matching normalizes title punctuation and accents, preserves volume numbers, and treats subtitle variants or uncertain authors as review candidates. It does not identify a recording's language, narration, or abridgement from its title. Library outages or incomplete responses hold the new download for retry instead of assuming the book is absent.
+
+**Review existing book** holds acquisition until you choose **Use this existing audiobook**, **Download another copy**, or **Check Audiobookshelf again**. Selecting an existing item rechecks its availability and saves a reference without importing, adopting files, or starting a torrent. Downloading another copy is an explicit override for that book and selected library. Changing libraries requires a fresh check. Retry and resume do not dismiss a warning.
+
+If your Grimarr library root corresponds to a subfolder of the Audiobookshelf library, or that library has multiple folders, set **Media Management → Audiobookshelf library path** to the same root as Audiobookshelf sees it (for example `/audiobooks/grimarr`). Index confirmation then checks that exact remote directory. With this blank, the relative directories in the two library roots must agree.
+
+After import, **Import complete** means the files are staged successfully but the scan request is pending. **Waiting for indexing** means the scan was requested, but Audiobookshelf has not yet confirmed readable audio at the imported relative directory with the reviewed title/author. Grimarr polls for confirmation, and **Check indexing again** can request another scan. **On your shelf** means an Audiobookshelf item was confirmed and its identity saved. A similar title at another directory is insufficient. Old imported records remain **Imported (unverified)** until you choose **Confirm Audiobookshelf indexing**. Existing available references are not continuously revalidated; full library adoption and ongoing synchronization are outside this step.
+
 ### Failed downloads and import recovery
 
 Missing torrents get a two-minute confirmation window before becoming **Download failed**. qBittorrent `error` and `missingFiles` states also fail explicitly. Active downloads with no progress fail after **Settings → Profiles → Stall timeout** (default 1440 minutes). Set this to 0 to disable, or 15–10080 minutes. Paused/stopped, queued, checking, moving, and allocating torrents do not count toward the stall timer. Service outages retry without blocking a release.
@@ -208,6 +218,7 @@ node tests/integration.mjs
 node tests/manual-selection.mjs
 node tests/recovery.mjs
 node tests/quick-add.mjs
+node tests/library-availability.mjs
 # Install Chromium once: cd frontend && npx playwright install chromium && cd ..
 node tests/ui.mjs
 ```

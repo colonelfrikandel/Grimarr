@@ -135,6 +135,11 @@ api.MapPost("/books/{id}/retry", async (string id, Store store, Workflow workflo
     try { var book = store.Books().FirstOrDefault(b => b.Id == id); if(book == null) return Results.NotFound(); workflow.Retry(book); return Results.Ok(); }
     finally { workflow.Gate.Release(); }
 });
+api.MapPost("/books/{id}/library-review",async (string id,LibraryReviewInput input,Store store,Workflow workflow,CancellationToken ct)=>{
+    await workflow.Gate.WaitAsync(ct);
+    try { var book=store.Books().FirstOrDefault(b=>b.Id==id);if(book==null)return Results.NotFound();await workflow.ReviewLibrary(store.Settings(),book,input.Action,input.ItemId,ct);return Results.Ok(PublicBook(book)); }
+    finally { workflow.Gate.Release(); }
+});
 api.MapPost("/books/{id}/replace", async (string id, Store store, Workflow workflow, CancellationToken ct) => {
     await workflow.Gate.WaitAsync(ct);
     try { var book=store.Books().FirstOrDefault(b=>b.Id==id); if(book==null) return Results.NotFound(); workflow.Replace(book); return Results.Ok(); }
@@ -192,7 +197,7 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 static object PublicRelease(Release release) => new { release.Title, release.Indexer, release.Seeders, release.SeedersKnown, release.Size, release.ListenerRating, release.RatingCount, release.RatingSource };
-static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Description, book.PublishedDate, book.Genre, book.CatalogUrl, book.Preferences, book.Status, book.AcquisitionMode, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
+static object PublicBook(Book book) => new { book.Id, book.Title, book.Author, book.Cover, book.CatalogId, book.Description, book.PublishedDate, book.Genre, book.CatalogUrl, book.Preferences, book.Status, book.AcquisitionMode, book.Suspended, book.Message, book.Progress, book.TorrentHash, book.CanRemove, book.LibraryMatches,book.AudiobookshelfItemId,book.VerifiedLibraryId,selectedRelease = book.SelectedRelease == null ? null : PublicRelease(book.SelectedRelease), book.ImportedPath, book.AddedAt, book.NextSearch, book.FailureReason, failedReleases=book.FailedReleases.Select(f=>new { f.Title, f.Reason, f.At, f.Blocked, f.InfoHash }) };
 static object PublicSettings(Settings settings) => new { settings = settings with { Prowlarr = settings.Prowlarr with { ApiKey = "", Password = "" }, Qbittorrent = settings.Qbittorrent with { ApiKey = "", Password = "" }, Audiobookshelf = settings.Audiobookshelf with { ApiKey = "", Password = "" } }, secrets = new { prowlarr = settings.Prowlarr.ApiKey.Length > 0, qbittorrent = settings.Qbittorrent.Password.Length > 0, audiobookshelf = settings.Audiobookshelf.ApiKey.Length > 0 } };
 static Settings Merge(Settings input, Settings old) => input with {
     Prowlarr = input.Prowlarr with { ApiKey = string.IsNullOrEmpty(input.Prowlarr.ApiKey) ? old.Prowlarr.ApiKey : input.Prowlarr.ApiKey },
@@ -212,6 +217,7 @@ static void ValidateSettings(Settings settings)
     if(settings.StallTimeoutMinutes != 0 && settings.StallTimeoutMinutes is < 15 or > 10080) throw new InvalidOperationException("Stall timeout must be zero (disabled), or between 15 minutes and seven days.");
     if(settings.ImportMode is not ("copy" or "hardlink-or-copy")) throw new InvalidOperationException("Unknown import mode.");
     if(!Path.IsPathFullyQualified(settings.LibraryRoot) || !Path.IsPathFullyQualified(settings.DownloadRoot)) throw new InvalidOperationException("Storage roots must be absolute paths inside the Grimarr container.");
+    if(!LibraryAvailability.ValidRemoteRoot(settings.AudiobookshelfLibraryPath))throw new InvalidOperationException("Audiobookshelf library path must be blank or an absolute path as seen by Audiobookshelf, without traversal segments.");
     var library = Path.GetFullPath(settings.LibraryRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     var downloads = Path.GetFullPath(settings.DownloadRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     if(library.StartsWith(downloads,StringComparison.OrdinalIgnoreCase) || downloads.StartsWith(library,StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Download and library roots must be separate, non-nested directories.");
@@ -222,4 +228,5 @@ static void ValidateSettings(Settings settings)
 record LoginRequest(string Password);
 record BookInput(string Title, string Author, string Cover = "", string CatalogId = "", Preferences? Preferences = null, string? CatalogSelectionId = null);
 record SelectionInput(string[] SelectionIds);
+record LibraryReviewInput(string Action,string? ItemId=null);
 public partial class Program { }

@@ -99,7 +99,7 @@ function App() {
     );
   if (!session) return <Login onLogin={() => setSession(true)} />;
   const downloading = books.filter((b) =>
-    ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending"].includes(b.status),
+    ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending", "indexing", "library-review"].includes(b.status),
   );
   const visible = books
     .filter(
@@ -113,7 +113,7 @@ function App() {
             ? !b.suspended
             : filter === "available"
               ? b.status === "available"
-              : ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending"].includes(b.status))),
+              : ["queued", "downloading", "download-failed", "import-pending", "import-failed", "scan-pending", "indexing", "library-review"].includes(b.status))),
     )
     .sort((a, b) =>
       sort === "author"
@@ -346,7 +346,7 @@ function App() {
                         <span className={"badge " + book.status}>
                           {book.suspended
                             ? "Monitoring paused"
-                            : statusLabel(book.status)}
+                            : statusLabel(book.status, !!book.audiobookshelfItemId)}
                         </span>
                         <p className="list-message">{book.message}</p>
                         <div className="list-preferences">
@@ -404,7 +404,8 @@ function App() {
     </div>
   );
 }
-function statusLabel(status: string) {
+function statusLabel(status: string, confirmed = true) {
+  if(status === "available" && !confirmed) return "Imported (unverified)";
   return (
     (
       {
@@ -415,6 +416,8 @@ function statusLabel(status: string) {
         "import-pending": "Importing",
         "import-failed": "Import needs attention",
         "scan-pending": "Import complete",
+        indexing: "Waiting for indexing",
+        "library-review": "Review existing book",
         available: "On your shelf",
       } as Record<string, string>
     )[status] || status
@@ -949,11 +952,23 @@ function BookModal({
       {error && <Notice text={error} />}
       <div className="detail-state">
         <span className={"badge " + book.status}>
-          {book.suspended ? "Monitoring paused" : statusLabel(book.status)}
+          {book.suspended ? "Monitoring paused" : statusLabel(book.status, !!book.audiobookshelfItemId)}
         </span>
         <p>{book.message}</p>
         {book.selectedRelease && <small>{book.selectedRelease.title}</small>}
       </div>
+      {book.status === "library-review" && <section className="library-review" aria-label="Existing Audiobookshelf matches">
+        <h3>Review existing audiobooks</h3>
+        <p className="helper">Downloads are held. Similar titles can be different books or recordings. Choose the existing item you want, or explicitly download another copy.</p>
+        {book.libraryMatches?.map(match=><div className="detail-state" key={match.id}>
+          <strong>{match.title}</strong><p>{match.author || "Author unknown"}</p><small>{match.sameAuthor ? "Title and author match; review the edition." : "Possible title match; author needs review."}</small>
+          <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/library-review`,"POST",{action:"use-existing",itemId:match.id})}>Use this existing audiobook</button>
+        </div>)}
+        <div className="quick-catalog-actions">
+          <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/library-review`,"POST",{action:"recheck"})}>Check Audiobookshelf again</button>
+          <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/library-review`,"POST",{action:"download-anyway"})}>Download another copy</button>
+        </div>
+      </section>}
       {book.status === "wanted" && (
         <>
           <h3>Edition preferences</h3>
@@ -994,14 +1009,14 @@ function BookModal({
           {book.suspended ? <RotateCw size={16} /> : <Pause size={16} />}{" "}
           {book.suspended ? "Resume monitoring" : "Pause monitoring"}
         </button>
-        {book.status !== "available" && (
+        {book.status !== "available" && book.status !== "library-review" && (
           <button
             className="secondary"
             disabled={busy}
             onClick={() => act(`/books/${book.id}/retry`)}
           >
             <RotateCw size={16} />
-            {book.status === "download-failed" ? "Retry this release" : book.status === "import-failed" ? "Retry import" : "Retry now"}
+            {book.status === "download-failed" ? "Retry this release" : book.status === "import-failed" ? "Retry import" : book.status === "indexing" ? "Check indexing again" : "Retry now"}
           </button>
         )}
         {book.status === "available" && (
@@ -1015,6 +1030,7 @@ function BookModal({
             <ArrowUpRight size={17} />
           </a>
         )}
+        {book.status === "available" && book.importedPath && !book.audiobookshelfItemId && <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/retry`)}>Confirm Audiobookshelf indexing</button>}
       </div>
       {!!book.failedReleases?.length && (
         <section>
@@ -1349,6 +1365,9 @@ function SettingsPage({ onSaved }: { onSaved: () => Promise<void> }) {
                 value={value.libraryRoot}
                 onChange={(e) => change("libraryRoot", e.target.value)}
               />
+            </Field>
+            <Field label="Audiobookshelf library path" help="Optional: this same library root as seen inside Audiobookshelf, for example /audiobooks. Set this for a subfolder or multiple library folders; otherwise confirmation uses the path relative to the selected library.">
+              <input value={value.audiobookshelfLibraryPath || ""} onChange={e=>change("audiobookshelfLibraryPath",e.target.value)} />
             </Field>
             <Field
               label="qBittorrent save path"

@@ -1399,6 +1399,9 @@ main { margin-left: 230px; padding-top: 64px; background: transparent; }
 .book-author { color: var(--muted); }
 .badge { background: #242834; color: #adb3c3; }
 .badge.available { background: rgba(133, 151, 229, 0.16); color: #b9c4ff; }
+.badge.library-review { background: rgba(229, 177, 87, 0.16); color: #edc787; }
+.badge.indexing { background: rgba(96, 171, 201, 0.14); color: #91cbe2; }
+.library-review button { margin-top: 12px; }
 .badge.downloading, .badge.queued { background: rgba(218, 168, 76, 0.15); color: #e6c078; }
 .badge.scan-pending { background: rgba(96, 171, 201, 0.14); color: #91cbe2; }
 .badge.import-pending { background: rgba(96, 171, 201, 0.14); color: #91cbe2; }

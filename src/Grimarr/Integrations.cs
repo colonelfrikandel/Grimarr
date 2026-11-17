@@ -54,6 +54,28 @@ public sealed class Integrations : IDisposable
         using var response = await client.PostAsync($"api/libraries/{Uri.EscapeDataString(settings.LibraryId)}/scan", null, ct);
         response.EnsureSuccessStatusCode();
     }
+    public async Task<LibraryBook[]> LibraryBooks(Settings settings,CancellationToken ct)
+    {
+        if(string.IsNullOrWhiteSpace(settings.LibraryId) || string.IsNullOrWhiteSpace(settings.Audiobookshelf.ApiKey))throw new InvalidOperationException("Configure Audiobookshelf and select a library before checking availability.");
+        using var client=Client(settings.Audiobookshelf,"bearer");var books=new List<LibraryBook>();var seen=new HashSet<string>();
+        for(var page=0;page<100;page++)
+        {
+            using var response=await client.GetAsync($"api/libraries/{Uri.EscapeDataString(settings.LibraryId)}/items?limit=200&page={page}&minified=0",ct);
+            if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"Audiobookshelf library check failed (HTTP {(int)response.StatusCode}). New downloads wait until the library can be checked. Verify the connection and retry.");
+            using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if(!json.RootElement.TryGetProperty("results",out var results))throw new InvalidOperationException("Audiobookshelf returned an unsupported library response.");
+            var batch=LibraryAvailability.Parse(results);
+            foreach(var item in batch) { if(!seen.Add(item.Id))throw new InvalidOperationException("Audiobookshelf pagination did not advance. Library check could not complete.");books.Add(item); }
+            if(json.RootElement.TryGetProperty("total",out var total) && total.TryGetInt32(out var expected))
+            {
+                if(expected<0 || books.Count>expected)throw new InvalidOperationException("Audiobookshelf library changed during the check. Retry availability checking.");
+                if(books.Count==expected)return books.ToArray();
+                if(batch.Length==0)throw new InvalidOperationException("Audiobookshelf returned an incomplete library page. Retry availability checking.");
+            }
+            else if(batch.Length<200)return books.ToArray();
+        }
+        throw new InvalidOperationException("Audiobookshelf library check exceeded 20,000 items. Download held for review.");
+    }
     public async Task<Qbit> Qbittorrent(Settings settings, CancellationToken ct)
     {
         var client = Client(settings.Qbittorrent);

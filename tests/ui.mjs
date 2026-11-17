@@ -234,6 +234,24 @@ try {
   await page.getByLabel('Info hash or magnet link',{exact:true}).fill('8'.repeat(40));await page.getByLabel('Selected Apple Books match',{exact:true}).waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/catalog?q=*',catalogRoute);
   console.log('PASS: Apple Books requires explicit edition selection, submits reviewed names and chosen ID, supports empty/error/manual fallback, ignores stale lookups, clears selection on source changes, and fits mobile. Lookup alone creates no books.');
+  let libraryFixture={id:'library-ui',title:'Existing fixture',author:'Test Author',cover:'',status:'library-review',suspended:false,canRemove:true,progress:0,preferences:stored.defaults,message:'Review existing Audiobookshelf matches.',libraryMatches:[{id:'existing-item',title:'Existing fixture',author:'Other Author',sameAuthor:false}]};
+  const libraryActions=[];
+  const libraryListRoute=route=>route.fulfill({json:[libraryFixture]});
+  const libraryReviewRoute=route=>{const payload=route.request().postDataJSON();libraryActions.push(payload);libraryFixture={...libraryFixture,status:payload.action==='use-existing'?'available':payload.action==='download-anyway'?'queued':'library-review',audiobookshelfItemId:payload.action==='use-existing'?'existing-item':undefined};return route.fulfill({json:libraryFixture});};
+  await page.route('**/api/books',libraryListRoute);await page.route('**/api/books/library-ui/library-review',libraryReviewRoute);await page.reload();
+  await page.getByRole('button',{name:/Existing fixture.*Review existing book/}).click();
+  await page.getByRole('heading',{name:'Review existing audiobooks',exact:true}).waitFor();await page.getByText('Possible title match; author needs review.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Retry now',exact:true}).count(),0);
+  await page.screenshot({path:'test-results/existing-library-mobile.png',fullPage:true});assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)));
+  await page.getByRole('button',{name:'Use this existing audiobook',exact:true}).click();await page.getByRole('heading',{name:'Review existing audiobooks',exact:true}).waitFor({state:'hidden'});
+  assert.deepEqual(libraryActions.at(-1),{action:'use-existing',itemId:'existing-item'});await page.getByRole('button',{name:'Close dialog'}).click();
+  libraryFixture={...libraryFixture,status:'library-review',audiobookshelfItemId:undefined};await page.reload();await page.getByRole('button',{name:/Existing fixture.*Review existing book/}).click();
+  await page.getByRole('button',{name:'Check Audiobookshelf again',exact:true}).click();await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Check Audiobookshelf again')?.disabled);assert.equal(libraryActions.at(-1).action,'recheck');
+  await page.getByRole('button',{name:'Download another copy',exact:true}).click();await page.getByRole('heading',{name:'Review existing audiobooks',exact:true}).waitFor({state:'hidden'});assert.equal(libraryActions.at(-1).action,'download-anyway');
+  await page.getByRole('button',{name:'Close dialog'}).click();libraryFixture={...libraryFixture,status:'indexing',message:'Files imported; scan requested. Waiting for confirmation.'};await page.reload();
+  await page.getByRole('button',{name:/Existing fixture.*Waiting for indexing/}).click();await page.getByRole('button',{name:'Check indexing again',exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open Audiobookshelf',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/books',libraryListRoute);await page.unroute('**/api/books/library-ui/library-review',libraryReviewRoute);
+  console.log('PASS: Existing-library warnings show uncertain matches, explicit use/override/recheck actions, mobile layout, and indexing remains visibly unconfirmed.');
   let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,
     message:'Torrent is missing from qBittorrent.',preferences:stored.defaults,selectedRelease:{title:'Failed release'},
     failedReleases:[{title:'Failed release',reason:'Torrent is missing from qBittorrent.',at:new Date().toISOString(),blocked:true}]};
