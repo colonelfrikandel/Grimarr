@@ -13,9 +13,9 @@ RUN dotnet restore src/Grimarr/Grimarr.csproj --locked-mode
 COPY src/ src/
 RUN dotnet publish src/Grimarr/Grimarr.csproj -c Release -o /out --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ffmpeg curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out ./
 COPY --from=ui /ui/dist ./wwwroot/

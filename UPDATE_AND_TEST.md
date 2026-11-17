@@ -96,7 +96,7 @@ Use the isolated test download folder and Audiobookshelf test library. Keep auto
 
 Return the timeout to 1440 minutes (24 hours), or your preferred setting, after testing. Set it to 0 to disable stall detection. Choose whether to leave automatic replacement enabled. Old failed torrents are retained and can still consume bandwidth or space; manage them explicitly in qBittorrent.
 
-Do not induce full-disk or permission failures on your real library. Those need a disposable storage environment. Files appearing in Audiobookshelf after its scan should be checked manually; Grimarr still does not confirm indexing automatically.
+Do not induce full-disk or permission failures on your real library. Those need a disposable storage environment. Grimarr distinguishes imported files, requested scans, and confirmed indexing. Review held duplicate matches or differing indexed metadata rather than assuming a successful scan response proves availability.
 
 ## Rollback
 
@@ -134,6 +134,8 @@ node tests/integration.mjs
 node tests/manual-selection.mjs
 node tests/recovery.mjs
 node tests/quick-add.mjs
+node tests/library-availability.mjs
+node tests/security.mjs
 node tests/ui.mjs
 ```
 
