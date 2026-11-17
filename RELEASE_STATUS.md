@@ -32,6 +32,18 @@ Verified on Windows and on a Linux Docker server on 2026-11-17. Grimarr remains 
 - Expand operational fault testing to abrupt container termination during a large copy and other storage layouts. Disk exhaustion, Linux permission denial, restart boundaries, and stale staging have been checked, but not every hardware/storage failure is simulated.
 - Complete the later release work: existing-library availability checks, security review, installation/upgrade/restore checks, and release packaging.
 
+## Editable Quick Add autofill
+
+Revision `8d59eea` was deployed after verification. Quick Add now previews magnet display names and torrent internal names, suggests title/author values, and keeps both fields editable before adding. Manual corrections survive subsequent previews; canceled or late responses cannot replace newer details. A restore button explicitly reapplies the current suggestions. Preview uses no peer/indexer lookups and creates no book or download. Missing names/authors remain available for manual entry; parsing is heuristic and should be reviewed.
+
+- All 200 backend/integration checks passed on Linux: 128 backend checks, 13 pipeline checks, 16 manual-selection checks, 21 recovery checks, and 22 Quick Add checks.
+- The browser suite passed automatic magnet and UTF-8 torrent suggestions, submitted corrections, preservation of edits, restore behavior, stale-response cancellation, and no premature additions.
+- Nineteen live checks passed using synthetic downloads with real qBittorrent and Audiobookshelf. Both magnet and torrent-file previews populated details without creating a torrent. Corrected titles/authors were then saved, imported, and verified in Audiobookshelf's full item metadata. Fixtures were cleaned up and existing items retained.
+- A full config/keys backup and the previous Docker image were retained. All six existing managed books, imported paths, preferences, service credentials, mounts, port, and automation settings were preserved. All three service connections passed, and the deployed container is healthy.
+- The actual server UI passed magnet/file autofill, Unicode handling, manual correction protection, restore behavior, preserved Prowlarr choice, mobile layout, unchanged book count, and no runtime errors.
+
+The Linux run also exposed a pre-existing recovery-test race: a persisted torrent hash can precede the remote add request. The test now waits for the downloading state before asserting submission side effects.
+
 ## Quick Add verification and deployment
 
 Revision `6d344fe` adds **Quick Add** alongside **Search with Prowlarr** in the Add audiobook dialog. It accepts hexadecimal/base32 v1 info hashes, magnets, and v1/hybrid torrent files up to 16 MB. Direct releases use the existing category/tag, download tracking, validation, import, and scan pipeline. Private magnet parameters and uploaded metadata are encrypted and omitted from public API responses. Failures require an explicit retry or a choice to search Prowlarr for a replacement.
