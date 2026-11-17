@@ -902,7 +902,7 @@ function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean
         <div className="catalog-item"><Cover book={selectedCatalog} /><span><strong>{selectedCatalog.title}</strong><small>{selectedCatalog.author}</small><small>Selected Apple Books match</small></span></div>
         <details><summary>Book details</summary><p>{selectedCatalog.description || "No description is available."}</p><p className="helper">{[selectedCatalog.releaseDate?.slice(0, 10), selectedCatalog.genre].filter(Boolean).join(" · ")}</p></details>
         {selectedCatalog.storeUrl && <a href={selectedCatalog.storeUrl} target="_blank" rel="noopener noreferrer">View on Apple Books</a>}
-        <p className="helper">The selected cover and details will be saved. You can still correct the title and author above.</p>
+          <p className="helper">The selected cover and available details will be saved and imported into Audiobookshelf, including genres as tags. You can still correct the title and author above.</p>
       </div>}
       {manualDetails && <p className="helper">Using manual details without an Apple Books match.</p>}
     </section>

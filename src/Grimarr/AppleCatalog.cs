@@ -5,7 +5,7 @@ using AngleSharp.Html.Parser;
 
 namespace Grimarr;
 
-public record CatalogBook(string Title,string Author,string Cover,string CatalogId,string Description,string ReleaseDate,string Genre,string StoreUrl,string SelectionId)
+public record CatalogBook(string Title,string Author,string Cover,string CatalogId,string Description,string ReleaseDate,string Genre,string StoreUrl,string SelectionId,string MetadataJson="")
 {
     public string Source => "Apple Books";
     public double? Rating => null;
@@ -52,7 +52,7 @@ public sealed class AppleCatalog : IDisposable
             throw new InvalidOperationException("Apple Books choices expired. Search again or clear the Apple Books match to use manual details.");
         var match=choice.Book;
         // Title and author remain the user's reviewed values, including manual corrections.
-        return book with { Cover=match.Cover,CatalogId=match.CatalogId,Description=match.Description,PublishedDate=match.ReleaseDate,Genre=match.Genre,CatalogUrl=match.StoreUrl };
+        return book with { Cover=match.Cover,CatalogId=match.CatalogId,Description=match.Description,PublishedDate=match.ReleaseDate,Genre=match.Genre,CatalogUrl=match.StoreUrl,AppleMetadataJson=match.MetadataJson };
     }
     public static CatalogBook[] Parse(JsonElement root)
     {
@@ -71,7 +71,9 @@ public sealed class AppleCatalog : IDisposable
             foreach(var node in document.QuerySelectorAll("script,style")) node.Remove();
             description=(document.Body?.TextContent ?? "").Trim();description=description[..Math.Min(description.Length,12000)];
             var date=DateTimeOffset.TryParse(Integrations.Text(row,"releaseDate"),out var releaseDate) ? releaseDate.ToString("yyyy-MM-dd") : "";
-            books.Add(new(title,author,cover,"itunes:"+number,description,date,Text(row,"primaryGenreName",100),url,Guid.NewGuid().ToString("N")));
+            var metadata=row.GetRawText();
+            if(metadata.Length>256*1024) throw new InvalidOperationException("Apple Books returned oversized metadata. Try again or use manual details.");
+            books.Add(new(title,author,cover,"itunes:"+number,description,date,Text(row,"primaryGenreName",100),url,Guid.NewGuid().ToString("N"),metadata));
         }
         return books.ToArray();
     }
@@ -79,6 +81,7 @@ public sealed class AppleCatalog : IDisposable
     {
         var value=Integrations.Text(row,key).Trim();return value[..Math.Min(value.Length,maximum)];
     }
+    public static bool IsArtworkUrl(string value)=>SafeUrl(value,true).Length>0;
     private static string SafeUrl(string value,bool artwork)
     {
         if (!Uri.TryCreate(value,UriKind.Absolute,out var uri) || uri.Scheme!="https" || uri.UserInfo.Length>0 || !uri.IsDefaultPort || value.Length>2000) return "";

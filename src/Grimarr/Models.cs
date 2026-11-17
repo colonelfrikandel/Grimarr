@@ -33,6 +33,7 @@ public record Book
     public string PublishedDate { get; init; } = "";
     public string Genre { get; init; } = "";
     public string CatalogUrl { get; init; } = "";
+    public string AppleMetadataJson { get; init; } = "";
     public Preferences Preferences { get; init; } = new();
     public string Status { get; set; } = "wanted";
     public string AcquisitionMode { get; set; } = "prowlarr";

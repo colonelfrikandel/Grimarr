@@ -40,7 +40,7 @@ static class AppleCatalogChecks
             var provider=DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root,"keys")));
             new Store(config,provider).Save(selected);
             var reopened=new Store(config,provider).Books().Single();
-            check("Chosen cover and details survive a store restart",reopened.Cover==selected.Cover && reopened.Description==selected.Description && reopened.CatalogId==selected.CatalogId && reopened.PublishedDate==selected.PublishedDate && reopened.Genre==selected.Genre && reopened.CatalogUrl==selected.CatalogUrl);
+        check("Chosen cover and complete Apple metadata survive a store restart",reopened.Cover==selected.Cover && reopened.Description==selected.Description && reopened.CatalogId==selected.CatalogId && reopened.PublishedDate==selected.PublishedDate && reopened.Genre==selected.Genre && reopened.CatalogUrl==selected.CatalogUrl && reopened.AppleMetadataJson==selected.AppleMetadataJson && selected.AppleMetadataJson.Contains("collectionName"));
         } finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();if(Directory.Exists(root))Directory.Delete(root,true); }
         clock.Now=clock.Now.AddMinutes(16);
         throws("Expired catalog choice requires a new lookup",()=>catalog.Apply(manual,results[0].SelectionId));

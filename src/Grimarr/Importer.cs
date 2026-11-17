@@ -7,6 +7,8 @@ namespace Grimarr;
 
 public sealed class Importer
 {
+    private readonly HttpClient? artworkClient;
+    public Importer(HttpClient? artworkClient=null) { this.artworkClient=artworkClient; }
     [DllImport("libc", SetLastError = true, EntryPoint = "link")]
     private static extern int Link(string source, string target);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -82,7 +84,7 @@ public sealed class Importer
         var audio = paths.Where(p => AudioExtensions.Contains(Path.GetExtension(p))).ToList();
         if(audio.Count == 0) throw new InvalidOperationException("No supported audio files found. Archives must be unpacked manually.");
         foreach(var file in audio) await ValidateAudio(file, ct);
-        var files = paths.Where(p => AudioExtensions.Contains(Path.GetExtension(p)) || Path.GetExtension(p).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png").ToList();
+        var files = paths.Where(p => AudioExtensions.Contains(Path.GetExtension(p)) || (!ImportMetadata.HasAppleCover(book) && (Path.GetExtension(p).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png"))).ToList();
         foreach(var file in files)
         {
             ct.ThrowIfCancellationRequested();
@@ -97,7 +99,7 @@ public sealed class Importer
                 await input.CopyToAsync(output,ct);
             }
         }
-        await File.WriteAllTextAsync(Path.Combine(stage,"metadata.json"), JsonSerializer.Serialize(new { title = book.Title, authors = new[] { book.Author }, language = "en" }, Store.Json), ct);
+        await ImportMetadata.Write(stage,book,ct,artworkClient);
         await File.WriteAllTextAsync(Path.Combine(stage,".grimarr.json"), JsonSerializer.Serialize(new { book.Id, book.TorrentHash, importedAt = DateTimeOffset.UtcNow }, Store.Json), ct);
         Directory.CreateDirectory(Path.GetDirectoryName(final)!); Directory.Move(stage,final);
         return final;
