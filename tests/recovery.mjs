@@ -94,14 +94,14 @@ try {
   await waitFor(async()=> (await book()).message.includes('resolves to a blocked torrent'),'proxy alias rejected');
   await check('Proxy alias of blocked hash is rejected before torrent submission',async()=>{assert.equal(adds,2);assert((await book()).failedReleases.some(f=>f.reason.includes('previously blocked')));});
   await api(`/books/${id}/retry`,'POST');
-  await waitFor(async()=> (await book()).torrentHash===hashes[1],'replacement');
+  await waitFor(async()=> {const b=await book();return b.torrentHash===hashes[1]&&b.status==='downloading';},'replacement submitted');
   await check('Replacement skips failed hash and retains old torrent and source',async()=>{assert.equal(adds,3);assert(torrents.has(hashes[0]));assert.deepEqual(await readFile(source),audio);});
   const rows=await api(`/books/${id}/releases`);
   await check('Release search explains blocked candidates',async()=>assert(rows.some(r=>!r.eligible&&r.reasons.some(reason=>reason.includes('Blocked')))));
   results=releases;
   settings={...settings,automaticFailedDownloadRecovery:true};await api('/settings','PUT',settings);
   torrents.get(hashes[1]).state='missingFiles';
-  await waitFor(async()=> (await book()).torrentHash===hashes[2],'automatic replacement');
+  await waitFor(async()=> {const b=await book();return b.torrentHash===hashes[2]&&b.status==='downloading';},'automatic replacement submitted');
   await check('Opt-in recovery replaces missing-files torrent without deleting it',async()=>{assert(torrents.has(hashes[1]));assert.equal(adds,4);});
   unavailable=true;await api(`/books/${id}/retry`,'POST');
   await waitFor(async()=> (await book()).message.includes('HTTP 503'),'service outage');
