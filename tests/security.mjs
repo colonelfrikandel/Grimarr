@@ -47,6 +47,8 @@ try {
  const originalCookie=cookie;await stop();await start();await check('Same-password restart retains valid owner sessions',()=>api('/session'));
  password='rotated-security-fixture-password';await stop();await start();cookie=originalCookie;
  await check('Password rotation rejects previously issued sessions',()=>api('/session','GET',undefined,401));await login();
+ password='security-fixture-password';await stop();await start();cookie=originalCookie;
+ await check('Returning to an old password does not resurrect its old session',()=>api('/session','GET',undefined,401));await login();
  await check('Tampered cookies are rejected',async()=>{const r=await fetch(base+'/api/session',{headers:{Cookie:cookie+'tampered'}});assert.equal(r.status,401);});
  let s=(await api('/settings')).settings;s={...s,libraryId:'fixture',libraryRoot:library,downloadRoot:downloads,audiobookshelf:{url:mockUrl,apiKey:'abs-fixture-secret'},qbittorrent:{url:mockUrl,username:'admin',password:'qbit-fixture-secret'},prowlarr:{url:mockUrl,apiKey:'prowlarr-fixture-secret'},automationEnabled:true};await api('/settings','PUT',s);
  const badBooks=[];

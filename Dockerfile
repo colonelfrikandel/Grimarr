@@ -15,7 +15,8 @@ RUN dotnet publish src/Grimarr/Grimarr.csproj -c Release -o /out --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute
 USER root
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ffmpeg curl && rm -rf /var/lib/apt/lists/*
+# Grimarr uses its own entrypoint; the base image's optional supervisor is unused.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ffmpeg curl && rm -f /usr/bin/pebble && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out ./
 COPY --from=ui /ui/dist ./wwwroot/

@@ -17,7 +17,7 @@ var password = builder.Configuration["GRIMARR_PASSWORD"];
 if(string.IsNullOrWhiteSpace(password) || password.Length < 12) throw new InvalidOperationException("Set GRIMARR_PASSWORD to a password of at least 12 characters.");
 var configRoot = builder.Configuration["GRIMARR_CONFIG"] ?? Path.Combine(AppContext.BaseDirectory,"config");
 AppSecurity.PrivateConfigDirectory(configRoot);
-var sessionVersion=AppSecurity.SessionVersion(password);
+builder.Services.AddSingleton<OwnerSession>();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(configRoot,"keys")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options => {
     options.Cookie.Name = "grimarr.session"; options.Cookie.HttpOnly = true; options.Cookie.SameSite = SameSiteMode.Strict;
@@ -26,7 +26,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = 401; return Task.CompletedTask; };
     options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; };
     options.Events.OnValidatePrincipal=async context=>{
-        if(!AppSecurity.ValidSession(context.Principal?.FindFirstValue(AppSecurity.SessionClaim),sessionVersion))
+        if(!AppSecurity.ValidSession(context.Principal?.FindFirstValue(AppSecurity.SessionClaim),context.HttpContext.RequestServices.GetRequiredService<OwnerSession>().Version))
         { context.RejectPrincipal();await context.HttpContext.SignOutAsync(); }
     };
 });
@@ -56,9 +56,9 @@ app.Use(async (context,next) => {
 });
 app.UseDefaultFiles(); app.UseStaticFiles(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-app.MapPost("/api/login", async (LoginRequest input, HttpContext context) => {
+app.MapPost("/api/login", async (LoginRequest input, HttpContext context, OwnerSession sessions) => {
     if(!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(input.Password ?? "")), SHA256.HashData(Encoding.UTF8.GetBytes(password)))) return Results.Unauthorized();
-    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner"),new Claim(AppSecurity.SessionClaim,sessionVersion) },CookieAuthenticationDefaults.AuthenticationScheme)));
+    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner"),new Claim(AppSecurity.SessionClaim,sessions.Version) },CookieAuthenticationDefaults.AuthenticationScheme)));
     return Results.Ok();
 }).RequireRateLimiting("login");
 var api = app.MapGroup("/api").RequireAuthorization();

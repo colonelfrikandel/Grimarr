@@ -8,9 +8,9 @@ static class SecurityChecks
 {
     public static async Task Run(Action<string,bool> check,Action<string,Action> throws)
     {
-        var version=AppSecurity.SessionVersion("fixture-password-one");
-        check("Session version is stable across unchanged-password restarts",AppSecurity.ValidSession(version,AppSecurity.SessionVersion("fixture-password-one")));
-        check("Password rotation invalidates old session versions",!AppSecurity.ValidSession(version,AppSecurity.SessionVersion("fixture-password-two")));
+        var version=AppSecurity.PasswordFingerprint("fixture-password-one");
+        check("Password fingerprint is stable for an unchanged password",AppSecurity.ValidSession(version,AppSecurity.PasswordFingerprint("fixture-password-one")));
+        check("Different passwords have distinct fingerprints",!AppSecurity.ValidSession(version,AppSecurity.PasswordFingerprint("fixture-password-two")));
         check("Missing and malformed session versions are rejected",!AppSecurity.ValidSession(null,version) && !AppSecurity.ValidSession("bad",version));
         var hash=new string('a',40);var magnet="magnet:?xt=urn:btih:"+hash;
         throws("Indexer magnets reject newline-separated extra downloads",()=>TorrentIdentity.MagnetHash(magnet+"\nmagnet:?xt=urn:btih:"+new string('b',40)));
@@ -25,6 +25,13 @@ static class SecurityChecks
         {
             if(!OperatingSystem.IsWindows())check("New Unix config roots are owner-only",(File.GetUnixFileMode(root)&(UnixFileMode.GroupRead|UnixFileMode.GroupWrite|UnixFileMode.GroupExecute|UnixFileMode.OtherRead|UnixFileMode.OtherWrite|UnixFileMode.OtherExecute))==0);
             var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["GRIMARR_CONFIG"]=root }).Build();var provider=DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root,"keys")));
+            IConfiguration SessionConfig(string password)=>new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["GRIMARR_CONFIG"]=root,["GRIMARR_PASSWORD"]=password }).Build();
+            var originalSession=new OwnerSession(SessionConfig("fixture-password-one"),provider).Version;
+            check("Persisted session nonce survives same-password restarts",new OwnerSession(SessionConfig("fixture-password-one"),provider).Version==originalSession);
+            var changedSession=new OwnerSession(SessionConfig("fixture-password-two"),provider).Version;
+            var reusedSession=new OwnerSession(SessionConfig("fixture-password-one"),provider).Version;
+            check("Password reuse cannot resurrect an older cookie",originalSession!=changedSession && reusedSession!=originalSession && reusedSession!=changedSession);
+            check("Session state is protected on disk",!File.ReadAllText(Path.Combine(root,"session-state")).Contains(originalSession));
             var store=new Store(config,provider);const string identifier="https://tracker.example/download?passkey=identifier-secret";
             var book=new Book {Title="Security fixture",Author="Author",SelectedRelease=new Release {Guid=identifier},FailedReleases=[new(identifier,1,null,"Fixture","Fixture",DateTimeOffset.UtcNow,true)]};store.Save(book);
             using(var db=new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(root,"grimarr.db")}"))
