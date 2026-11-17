@@ -969,6 +969,14 @@ function BookModal({
           <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/library-review`,"POST",{action:"download-anyway"})}>Download another copy</button>
         </div>
       </section>}
+      {book.status === "indexing" && !!book.libraryMatches?.length && <section className="library-review" aria-label="Indexed audiobook review">
+        <h3>Review indexed audiobook</h3>
+        <p className="helper">Audiobookshelf has audio at the imported directory, but the metadata differs or more than one item matches. Confirm the correct indexed item. This preserves existing names and files.</p>
+        {book.libraryMatches.map(match=><div className="detail-state" key={match.id}>
+          <strong>{match.title}</strong><p>{match.author || "Author unknown"}</p>
+          <button className="secondary" disabled={busy} onClick={()=>act(`/books/${book.id}/library-review`,"POST",{action:"confirm-indexed",itemId:match.id})}>Confirm this indexed audiobook</button>
+        </div>)}
+      </section>}
       {book.status === "wanted" && (
         <>
           <h3>Edition preferences</h3>

@@ -237,7 +237,7 @@ try {
   let libraryFixture={id:'library-ui',title:'Existing fixture',author:'Test Author',cover:'',status:'library-review',suspended:false,canRemove:true,progress:0,preferences:stored.defaults,message:'Review existing Audiobookshelf matches.',libraryMatches:[{id:'existing-item',title:'Existing fixture',author:'Other Author',sameAuthor:false}]};
   const libraryActions=[];
   const libraryListRoute=route=>route.fulfill({json:[libraryFixture]});
-  const libraryReviewRoute=route=>{const payload=route.request().postDataJSON();libraryActions.push(payload);libraryFixture={...libraryFixture,status:payload.action==='use-existing'?'available':payload.action==='download-anyway'?'queued':'library-review',audiobookshelfItemId:payload.action==='use-existing'?'existing-item':undefined};return route.fulfill({json:libraryFixture});};
+  const libraryReviewRoute=route=>{const payload=route.request().postDataJSON();libraryActions.push(payload);const confirmed=['use-existing','confirm-indexed'].includes(payload.action);libraryFixture={...libraryFixture,status:confirmed?'available':payload.action==='download-anyway'?'queued':'library-review',audiobookshelfItemId:confirmed?'existing-item':undefined};return route.fulfill({json:libraryFixture});};
   await page.route('**/api/books',libraryListRoute);await page.route('**/api/books/library-ui/library-review',libraryReviewRoute);await page.reload();
   await page.getByRole('button',{name:/Existing fixture.*Review existing book/}).click();
   await page.getByRole('heading',{name:'Review existing audiobooks',exact:true}).waitFor();await page.getByText('Possible title match; author needs review.',{exact:true}).waitFor();
@@ -250,6 +250,7 @@ try {
   await page.getByRole('button',{name:'Download another copy',exact:true}).click();await page.getByRole('heading',{name:'Review existing audiobooks',exact:true}).waitFor({state:'hidden'});assert.equal(libraryActions.at(-1).action,'download-anyway');
   await page.getByRole('button',{name:'Close dialog'}).click();libraryFixture={...libraryFixture,status:'indexing',message:'Files imported; scan requested. Waiting for confirmation.'};await page.reload();
   await page.getByRole('button',{name:/Existing fixture.*Waiting for indexing/}).click();await page.getByRole('button',{name:'Check indexing again',exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open Audiobookshelf',exact:true}).count(),0);
+  await page.getByRole('heading',{name:'Review indexed audiobook',exact:true}).waitFor();await page.getByRole('button',{name:'Confirm this indexed audiobook',exact:true}).click();await page.getByRole('heading',{name:'Review indexed audiobook',exact:true}).waitFor({state:'hidden'});assert.deepEqual(libraryActions.at(-1),{action:'confirm-indexed',itemId:'existing-item'});
   await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/books',libraryListRoute);await page.unroute('**/api/books/library-ui/library-review',libraryReviewRoute);
   console.log('PASS: Existing-library warnings show uncertain matches, explicit use/override/recheck actions, mobile layout, and indexing remains visibly unconfirmed.');
   let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,

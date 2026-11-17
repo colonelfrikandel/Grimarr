@@ -156,6 +156,8 @@ Before a new Prowlarr or Quick Add download, Grimarr checks every page of the se
 
 If your Grimarr library root corresponds to a subfolder of the Audiobookshelf library, or that library has multiple folders, set **Media Management → Audiobookshelf library path** to the same root as Audiobookshelf sees it (for example `/audiobooks/grimarr`). Index confirmation then checks that exact remote directory. With this blank, the relative directories in the two library roots must agree.
 
+If audio is indexed at the imported directory but its title/author differs (for example, you edited metadata in Audiobookshelf), Grimarr presents **Review indexed audiobook**. **Confirm this indexed audiobook** revalidates the selected item at that directory, then links it without changing titles, metadata, audio, or artwork. A missing item or an item at another directory cannot be accepted.
+
 After import, **Import complete** means the files are staged successfully but the scan request is pending. **Waiting for indexing** means the scan was requested, but Audiobookshelf has not yet confirmed readable audio at the imported relative directory with the reviewed title/author. Grimarr polls for confirmation, and **Check indexing again** can request another scan. **On your shelf** means an Audiobookshelf item was confirmed and its identity saved. A similar title at another directory is insufficient. Old imported records remain **Imported (unverified)** until you choose **Confirm Audiobookshelf indexing**. Existing available references are not continuously revalidated; full library adoption and ongoing synchronization are outside this step.
 
 ### Failed downloads and import recovery

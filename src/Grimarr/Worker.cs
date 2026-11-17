@@ -62,6 +62,15 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
     }
     public async Task ReviewLibrary(Settings settings,Book book,string action,string? itemId,CancellationToken ct)
     {
+        if(action=="confirm-indexed")
+        {
+            if(book.Status!="indexing" || book.ImportedPath==null)throw new InvalidOperationException("Only an imported book awaiting indexing can confirm an indexed directory.");
+            var located=LibraryAvailability.ImportedDirectories(settings,book,await integrations.LibraryBooks(settings,ct));
+            if(itemId==null || !located.Any(i=>i.Id==itemId))throw new InvalidOperationException("This indexed item is no longer at the imported directory. Check again before confirming.");
+            book.AudiobookshelfItemId=itemId;book.VerifiedLibraryId=settings.LibraryId;book.Status="available";book.Progress=1;book.LibraryMatches=[];
+            book.Message="Indexed Audiobookshelf item confirmed after metadata review. Existing titles and files were preserved.";
+            store.Save(book);store.Log(book,book.Message);return;
+        }
         if(book.Status!="library-review" || book.TorrentHash!=null || book.ImportedPath!=null)throw new InvalidOperationException("Only a held download can resolve existing-library matches.");
         if(action=="download-anyway")
         {
@@ -73,6 +82,7 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
             var matches=LibraryAvailability.Matches(book,await integrations.LibraryBooks(settings,ct));
             if(itemId==null || !matches.Any(m=>m.Id==itemId))throw new InvalidOperationException("This Audiobookshelf match is no longer available. Check again before choosing.");
             book.AudiobookshelfItemId=itemId;book.VerifiedLibraryId=settings.LibraryId;book.Status="available";book.Progress=1;book.LibraryMatches=[];
+            book.SelectedRelease=null;
             book.Message="Existing audiobook confirmed in Audiobookshelf. No torrent downloaded or files imported.";
         }
         else if(action=="recheck")
@@ -258,15 +268,18 @@ public sealed class Workflow(Store store, Integrations integrations, Importer im
         }
         if(book.Status=="indexing")
         {
-            var indexed=LibraryAvailability.Imported(settings,book,await integrations.LibraryBooks(settings,ct));
-            if(indexed.Length==1)
+            var items=await integrations.LibraryBooks(settings,ct);
+            var located=LibraryAvailability.ImportedDirectories(settings,book,items);var indexed=LibraryAvailability.Imported(settings,book,located);
+            if(indexed.Length==1 && located.Length==1)
             {
+                book.LibraryMatches=[];
                 book.Status="available";book.AudiobookshelfItemId=indexed[0].Id;book.VerifiedLibraryId=settings.LibraryId;
                 book.Message="Confirmed available in Audiobookshelf.";book.Progress=1;store.Save(book);store.Log(book,book.Message);
             }
             else
             {
-                book.Message=indexed.Length>1 ? "Multiple indexed items share the imported directory. Review Audiobookshelf before continuing." : "Files imported; scan requested. Audiobookshelf has not indexed this imported directory yet. Check library paths and retry if needed.";
+                book.LibraryMatches=located.Select(i=>new LibraryMatch(i.Id,i.Title,string.Join(", ",i.Authors),i.Authors.Any(a=>LibraryAvailability.Normalize(a)==LibraryAvailability.Normalize(book.Author)))).ToArray();
+                book.Message=located.Length>0 ? "Indexed audio found at the imported directory, but its metadata differs or multiple items exist. Review the indexed item before confirming." : "Files imported; scan requested. Audiobookshelf has not indexed this imported directory yet. Check library paths and retry if needed.";
                 book.NextSearch=DateTimeOffset.UtcNow.AddSeconds(30);store.Save(book);
             }
         }

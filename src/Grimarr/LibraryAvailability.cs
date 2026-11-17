@@ -40,11 +40,13 @@ public static class LibraryAvailability
         return books.ToArray();
     }
     public static LibraryBook[] Imported(Settings settings,Book book,IEnumerable<LibraryBook> items)
+        =>ImportedDirectories(settings,book,items).Where(i=>Normalize(i.Title)==Normalize(book.Title) && i.Authors.Any(a=>Normalize(a)==Normalize(book.Author))).ToArray();
+    public static LibraryBook[] ImportedDirectories(Settings settings,Book book,IEnumerable<LibraryBook> items)
     {
         if(string.IsNullOrEmpty(book.ImportedPath))return [];
         var relative=Path.GetRelativePath(settings.LibraryRoot,Importer.Under(settings.LibraryRoot,book.ImportedPath)).Replace('\\','/');
         var remote=settings.AudiobookshelfLibraryPath.Replace('\\','/').TrimEnd('/');
         // Match the imported relative directory, never another recording with the same title.
-        return items.Where(i=>i.HasAudio && (settings.AudiobookshelfLibraryPath.Length>0 ? i.Path==remote+"/"+relative : i.RelPath==relative) && Normalize(i.Title)==Normalize(book.Title) && i.Authors.Any(a=>Normalize(a)==Normalize(book.Author))).ToArray();
+        return items.Where(i=>i.HasAudio && (settings.AudiobookshelfLibraryPath.Length>0 ? i.Path==remote+"/"+relative : i.RelPath==relative)).ToArray();
     }
 }
