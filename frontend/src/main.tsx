@@ -1,6 +1,7 @@
 import {
   useEffect,
   useState,
+  useRef,
   useId,
   cloneElement,
   isValidElement,
@@ -806,22 +807,45 @@ function AddModal({
     </Modal>
   );
 }
+async function readQuickTorrent(file: File | null): Promise<string> {
+  if (!file) throw new Error("Choose a .torrent file.");
+  if (file.size === 0 || file.size > 16 * 1024 * 1024) throw new Error("Choose a .torrent file between 1 byte and 16 MB.");
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = () => reject(new Error("The torrent file could not be read.")); reader.readAsDataURL(file);
+  });
+}
+type QuickSuggestion = { title: string; author: string; displayName: string; notice: string };
 function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean; added: (book: Book) => Promise<void> }) {
   const [title, setTitle] = useState(""), [author, setAuthor] = useState(""),
     [source, setSource] = useState(""), [kind, setKind] = useState<"link" | "file">("link"),
     [file, setFile] = useState<File | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const titleEdited = useRef(false), authorEdited = useRef(false);
+  const [suggestion, setSuggestion] = useState<QuickSuggestion | null>(null), [detecting, setDetecting] = useState(false), [previewNotice, setPreviewNotice] = useState("");
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    setSuggestion(null); setPreviewNotice(""); setDetecting(false);
+    if (!titleEdited.current) setTitle(""); if (!authorEdited.current) setAuthor("");
+    if (kind === "link" ? !source.trim() : !file) return () => { active = false; controller.abort(); };
+    const timer = window.setTimeout(async () => {
+      setDetecting(true);
+      try {
+        const body = kind === "file" ? { torrentBase64: await readQuickTorrent(file) } : { source: source.trim() };
+        if (!active) return;
+        const result = await api<QuickSuggestion>("/books/quick-add/preview", "POST", body, controller.signal);
+        if (!active) return;
+        setSuggestion(result); setPreviewNotice(result.notice);
+        if (!titleEdited.current) setTitle(result.title);
+        if (!authorEdited.current) setAuthor(result.author);
+      } catch (e) { if (active) setPreviewNotice((e as Error).message); }
+      finally { if (active) setDetecting(false); }
+    }, 400);
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
+  }, [kind, source, file]);
   return <form onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError("");
     try {
-      let torrentBase64: string | undefined;
-      if (kind === "file") {
-        if (!file) throw new Error("Choose a .torrent file.");
-        if (file.size === 0 || file.size > 16 * 1024 * 1024) throw new Error("Choose a .torrent file between 1 byte and 16 MB.");
-        torrentBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader(); reader.onload = () => resolve((reader.result as string).split(",")[1]);
-          reader.onerror = () => reject(new Error("The torrent file could not be read.")); reader.readAsDataURL(file);
-        });
-      }
+      const torrentBase64 = kind === "file" ? await readQuickTorrent(file) : undefined;
       await added(await api<Book>("/books/quick-add", "POST", { title, author, source: kind === "link" ? source.trim() : undefined, torrentBase64 }));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }}>
@@ -831,11 +855,13 @@ function QuickAddForm({ automationEnabled, added }: { automationEnabled: boolean
       <label><input type="radio" name="quick-source" checked={kind === "link"} onChange={() => { setKind("link"); setError(""); }} />Hash or magnet</label>
       <label><input type="radio" name="quick-source" checked={kind === "file"} onChange={() => { setKind("file"); setError(""); }} />Upload a torrent file</label>
     </fieldset>
-    {kind === "link" ? <Field label="Info hash or magnet link"><textarea required rows={3} maxLength={16384} value={source} onChange={e => setSource(e.target.value)} placeholder="Paste an info hash or magnet:?xt=urn:btih:…" /></Field>
-      : <Field label="Torrent file" help="Select a v1 or hybrid .torrent file, up to 16 MB."><input type="file" accept=".torrent,application/x-bittorrent" required onChange={e => setFile(e.target.files?.[0] || null)} /></Field>}
+    {kind === "link" ? <Field label="Info hash or magnet link"><textarea required rows={3} maxLength={16384} value={source} onChange={e => { setSource(e.target.value); setError(""); }} placeholder="Paste an info hash or magnet:?xt=urn:btih:…" /></Field>
+      : <Field label="Torrent file" help="Select a v1 or hybrid .torrent file, up to 16 MB."><input type="file" accept=".torrent,application/x-bittorrent" required onChange={e => { setFile(e.target.files?.[0] || null); setError(""); }} /></Field>}
+    <p className="helper" role="status">{detecting ? "Reading book details…" : previewNotice || "Names will be suggested when available. Review or enter the title and author before adding."}</p>
+    {suggestion && (suggestion.title || suggestion.author) && <button type="button" className="link" onClick={() => { titleEdited.current = false; authorEdited.current = false; setTitle(suggestion.title); setAuthor(suggestion.author); }}>Restore detected details</button>}
     <div className="form-grid">
-      <Field label="Book title"><input required maxLength={250} value={title} onChange={e => setTitle(e.target.value)} /></Field>
-      <Field label="Author"><input required maxLength={200} value={author} onChange={e => setAuthor(e.target.value)} /></Field>
+      <Field label="Book title"><input required maxLength={250} value={title} onChange={e => { titleEdited.current = true; setTitle(e.target.value); }} /></Field>
+      <Field label="Author"><input required maxLength={200} value={author} onChange={e => { authorEdited.current = true; setAuthor(e.target.value); }} /></Field>
     </div>
     <p className="helper">Quick Add uses your exact release. Check its language and edition yourself. Grimarr will track the download, validate the audio, and import it into your selected Audiobookshelf library. A hash or magnet still needs peers to supply metadata and files.</p>
     {!automationEnabled && <p className="helper">Automation is paused. This download will stay queued until you enable it in Settings.</p>}

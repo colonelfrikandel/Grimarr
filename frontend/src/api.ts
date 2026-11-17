@@ -70,11 +70,13 @@ export async function api<T = unknown>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch("/api" + path, {
     method,
     headers: { "Content-Type": "application/json", "X-Grimarr": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   if (response.status === 401 && path != "/login")
     window.dispatchEvent(new Event("grimarr-session-expired"));

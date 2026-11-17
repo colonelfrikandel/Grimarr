@@ -75,6 +75,15 @@ api.MapPost("/connections/{service}/test", async (string service, Settings input
     return Results.Ok(new { message = "Connected" });
 });
 api.MapGet("/books", (Store store) => store.Books().Select(PublicBook));
+api.MapPost("/books/quick-add/preview", async (HttpContext context, CancellationToken ct) => {
+    const long maximumBody=24*1024*1024;
+    if (context.Request.ContentLength>maximumBody) return Results.Json(new { error="Torrent upload is too large (16 MB maximum file size)." },statusCode:413);
+    var limit=context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+    if (limit is { IsReadOnly:false }) limit.MaxRequestBodySize=maximumBody;
+    var input=await context.Request.ReadFromJsonAsync<QuickAddInput>(ct);
+    if (input==null) return Results.BadRequest(new { error="Provide a magnet link, info hash, or torrent file." });
+    return Results.Ok(QuickAdd.Preview(input));
+});
 api.MapPost("/books/quick-add", async (HttpContext context, Store store, Workflow workflow, CancellationToken ct) => {
     const long maximumBody=24*1024*1024;
     if (context.Request.ContentLength>maximumBody) return Results.Json(new { error="Torrent upload is too large (16 MB maximum file size)." },statusCode:413);

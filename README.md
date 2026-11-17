@@ -140,6 +140,8 @@ Quick Add uses the exact release you provide, independently of the manual-select
 
 Prowlarr is optional for Quick Add. Audiobookshelf and the download/storage settings are still required for the automated workflow. A hash/magnet may wait for peers to supply metadata; supplying a `.torrent` file avoids that metadata lookup but does not supply missing audio pieces or seeders. Generic HTTP download links and pure-v2 torrents are not supported.
 
+Quick Add automatically suggests the title and author from a magnet's display name (`dn`) or a torrent's internal name. Common `Author - Title`, numbered `Title - Author`, and `Title by Author` names are recognised, with common format tags removed. These are suggestions: check and edit both fields before clicking Add. Your manual corrections are retained when a newer preview arrives; **Restore detected details** explicitly restores the current suggestions. A preview does not add a torrent, contact peers/indexers, or create a book. A bare hash, a magnet without a display name, or an unidentifiable author requires manual entry.
+
 Failed Quick Add releases wait for **Retry this release**, or an explicit **Search Prowlarr for replacement**. They do not silently switch to Prowlarr when automatic failed-download replacement is enabled. A replacement search explicitly changes that book to the Prowlarr workflow.
 
 ### Failed downloads and import recovery

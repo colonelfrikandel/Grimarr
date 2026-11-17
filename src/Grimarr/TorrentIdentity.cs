@@ -8,6 +8,10 @@ public static class TorrentIdentity
 {
     public static (string Hash, long Size) ValidateFile(byte[] data)
     {
+        var file=InspectFile(data);return (file.Hash,file.Size);
+    }
+    public static (string Hash, long Size, string Name) InspectFile(byte[] data)
+    {
         if (data.Length==0 || data.Length>QuickAdd.MaximumTorrentBytes) throw new InvalidOperationException("Upload a .torrent file between 1 byte and 16 MB.");
         int cursor=0,nodes=0;
         InvalidOperationException Invalid() => new("Invalid or unsupported torrent metadata.");
@@ -66,7 +70,11 @@ public static class TorrentIdentity
         else if (info.TryGetValue("length",out var len) && len is long length && length>0) total=length;
         else throw Invalid();
         if (total<=0 || (total-1)/pieceLength+1!=pieces.Length/20) throw Invalid();
-        return (Hash(data),total);
+        var nameBytes=(byte[])(info.TryGetValue("name.utf-8",out var preferred) ? preferred : name);
+        string displayName;
+        try { displayName=new UTF8Encoding(false,true).GetString(nameBytes); }
+        catch(DecoderFallbackException) { displayName=Encoding.Latin1.GetString(nameBytes); }
+        return (Hash(data),total,displayName);
     }
     public static string MagnetHash(string magnet)
     {

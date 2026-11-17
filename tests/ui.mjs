@@ -136,6 +136,46 @@ try {
   }
   const quickBooks=(await (await page.request.get('http://127.0.0.1:8787/api/books')).json()).filter(b=>b.acquisitionMode==='quick-add');
   assert.equal(quickBooks.length,3);assert(quickBooks.every(b=>b.status==='queued'));assert(!JSON.stringify(quickBooks).includes('private-ui-key'));
+  const beforePreviewCount=(await(await page.request.get('http://127.0.0.1:8787/api/books')).json()).length;
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('magnet:?xt=urn:btih:'+'c'.repeat(40)+'&dn='+encodeURIComponent('Jane Austen - Pride and Prejudice [M4B]'));
+  const titleId=await page.getByLabel('Book title',{exact:true}).getAttribute('id');const authorId=await page.getByLabel('Author',{exact:true}).getAttribute('id');
+  await page.waitForFunction(([id,value])=>document.getElementById(id)?.value===value,[titleId,'Pride and Prejudice']);
+  assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'Jane Austen');
+  assert.equal((await(await page.request.get('http://127.0.0.1:8787/api/books')).json()).length,beforePreviewCount,'Preview created a download before review');
+  await page.getByLabel('Book title',{exact:true}).fill('My Corrected Title');await page.getByLabel('Author',{exact:true}).fill('My Corrected Author');
+  const previewResponse=page.waitForResponse(r=>r.url().endsWith('/books/quick-add/preview')&&r.request().postDataJSON()?.source?.includes('Cornman'));
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('magnet:?xt=urn:btih:'+'c'.repeat(40)+'&dn='+encodeURIComponent('Cornman - Mage Tank 03 [M4B]'));await previewResponse;
+  await page.getByRole('button',{name:'Restore detected details',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Book title',{exact:true}).inputValue(),'My Corrected Title');assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'My Corrected Author');
+  await page.getByRole('button',{name:'Queue download',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+  const corrected=(await(await page.request.get('http://127.0.0.1:8787/api/books')).json()).find(b=>b.title==='My Corrected Title');assert.equal(corrected.author,'My Corrected Author');
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  await page.getByRole('radio',{name:'Upload a torrent file',exact:true}).check();
+  const detectedName='Émilie - L’Étoile [M4B]';const detectedTorrent=Buffer.from('d4:infod6:lengthi4e4:name'+Buffer.byteLength(detectedName)+':'+detectedName+'12:piece lengthi16384e6:pieces20:abcdefghijklmnopqrstee');
+  await page.getByLabel('Torrent file',{exact:true}).setInputFiles({name:'book.torrent',mimeType:'application/x-bittorrent',buffer:detectedTorrent});
+  const fileTitleId=await page.getByLabel('Book title',{exact:true}).getAttribute('id');
+  await page.waitForFunction(([id,value])=>document.getElementById(id)?.value===value,[fileTitleId,'L’Étoile']);assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'Émilie');
+  await page.getByLabel('Author',{exact:true}).fill('Edited Author');await page.getByRole('button',{name:'Restore detected details',exact:true}).click();assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'Émilie');
+  await page.screenshot({path:'test-results/quick-add-autofill-mobile.png',fullPage:true});
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  const delayedPreview=async route=>{
+    if(route.request().postDataJSON()?.source?.includes('Delayed')) {
+      await new Promise(r=>setTimeout(r,900));
+      try {await route.fulfill({json:{title:'Stale Title',author:'Stale Author',displayName:'Delayed',notice:'Old suggestion'}});}catch{/* The client intentionally aborted this preview. */}
+    } else await route.continue();
+  };
+  await page.route('**/api/books/quick-add/preview',delayedPreview);
+  await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
+  const delayedRequest=page.waitForRequest(r=>r.url().endsWith('/books/quick-add/preview')&&r.postDataJSON()?.source?.includes('Delayed'));
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('magnet:?xt=urn:btih:'+'d'.repeat(40)+'&dn=Delayed');await delayedRequest;
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('magnet:?xt=urn:btih:'+'e'.repeat(40)+'&dn='+encodeURIComponent('Cornman - Mage Tank 03'));
+  const freshTitleId=await page.getByLabel('Book title',{exact:true}).getAttribute('id');
+  await page.waitForFunction(([id,value])=>document.getElementById(id)?.value===value,[freshTitleId,'Mage Tank 03']);await new Promise(r=>setTimeout(r,1000));
+  assert.equal(await page.getByLabel('Book title',{exact:true}).inputValue(),'Mage Tank 03');assert.equal(await page.getByLabel('Author',{exact:true}).inputValue(),'Cornman');
+  await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/books/quick-add/preview',delayedPreview);
+  console.log('PASS: A canceled slow preview cannot replace details from the latest source.');
+  console.log('PASS: Magnet and UTF-8 torrent names autofill before adding; previews create no downloads; corrections survive new suggestions, are submitted, and can be reset explicitly.');
   await page.getByRole('button',{name:'Add audiobook',exact:true}).first().click();
   await page.getByRole('tab',{name:'Quick Add',exact:true}).click();
   await page.getByLabel('Book title',{exact:true}).fill('Invalid Quick Add');await page.getByLabel('Author',{exact:true}).fill('UI Test Author');

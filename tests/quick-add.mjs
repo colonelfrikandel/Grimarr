@@ -47,6 +47,16 @@ try {
  let settings=(await api('/settings')).settings;
  settings={...settings,prowlarr:{url:'',apiKey:''},qbittorrent:{url:mockUrl,username:'admin',password:'fixture'},audiobookshelf:{url:mockUrl,apiKey:'fixture'},libraryId:'fixture',downloadRoot:downloads,libraryRoot:library,qbitSavePath:downloads,automationEnabled:false,manualSelection:true};
  await api('/settings','PUT',settings);
+ await check('Preview requires authentication',async()=>assert.equal((await fetch(base+'/api/books/quick-add/preview',{method:'POST',headers:{'Content-Type':'application/json','X-Grimarr':'1'},body:JSON.stringify({source:hashes[0]})})).status,401));
+ await check('Preview requires the same anti-CSRF header',async()=>assert.equal((await fetch(base+'/api/books/quick-add/preview',{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:'{}'})).status,403));
+ await check('Magnet preview suggests details without queuing or contacting services',async()=>{
+  const suggestion=await api('/books/quick-add/preview','POST',{source:'magnet:?xt=urn:btih:'+hashes[0]+'&dn='+encodeURIComponent('Cornman - Mage Tank 03 [M4B]')+'&tr=https%3A%2F%2Ftracker.example%2Fprivate-preview-key'});
+  assert.equal(suggestion.title,'Mage Tank 03');assert.equal(suggestion.author,'Cornman');assert(!JSON.stringify(suggestion).includes('private-preview-key'));
+  assert.equal((await api('/books')).length,0);assert.equal(adds.length,0);assert.equal(searches,0);
+ });
+ await check('Torrent preview reads internal name without starting a download',async()=>{const s=await api('/books/quick-add/preview','POST',{torrentBase64:torrent.toString('base64')});assert.equal(s.title,'audio');assert.equal(s.author,'');assert.equal(adds.length,0);assert.equal((await api('/books')).length,0);});
+ await check('Bare hash preview leaves both fields for manual entry',async()=>{const s=await api('/books/quick-add/preview','POST',{source:hashes[0]});assert.equal(s.title,'');assert.equal(s.author,'');});
+ await check('Invalid preview source is rejected without creating a record',async()=>{await api('/books/quick-add/preview','POST',{torrentBase64:Buffer.from('invalid').toString('base64')},400);assert.equal((await api('/books')).length,0);});
  await check('Invalid Quick Add sources create no records',async()=>{for(const input of [{source:'bad'},{source:hashes[0],torrentBase64:torrent.toString('base64')},{torrentBase64:Buffer.from('<html>wrong</html>').toString('base64')},{source:'http://127.0.0.1/private'}])await api('/books/quick-add','POST',{title:'Invalid',author:'Fixture Author',...input},400);assert.equal((await api('/books')).length,0);});
  const a=await api('/books/quick-add','POST',{title:'Hash Fixture',author:'Fixture Author',source:hashes[0].toUpperCase()});
  const b=await api('/books/quick-add','POST',{title:'Magnet Fixture',author:'Fixture Author',source:'magnet:?xt=urn:btih:'+hashes[1]+'&tr=https%3A%2F%2Ftracker.example%2Fprivate-magnet-key'});

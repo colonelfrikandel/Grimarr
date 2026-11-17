@@ -34,5 +34,31 @@ static class QuickAddChecks
         throws("Torrent upload rejects malformed dictionaries",()=>TorrentIdentity.ValidateFile(Encoding.ASCII.GetBytes("d4:info"+info+"x")));
         throws("Torrent upload rejects invalid base64",()=>QuickAdd.Create(new("Title","Author",TorrentBase64:"not-base64!"),prefs));
         throws("Torrent upload rejects oversized files before decode",()=>QuickAdd.Create(new("Title","Author",TorrentBase64:new string('A',((QuickAdd.MaximumTorrentBytes+2)/3)*4+1)),prefs));
+        var detected=QuickAdd.Preview(new(Source:"magnet:?xt=urn:btih:"+h+"&dn="+Uri.EscapeDataString("Cornman - Mage Tank 03 [M4B] [128 Kbps]")+"&tr=https%3A%2F%2Ftracker.example%2Fprivate-secret"));
+        check("Magnet display name suggests title and author",detected.Title=="Mage Tank 03" && detected.Author=="Cornman");
+        check("Preview omits private magnet parameters",!System.Text.Json.JsonSerializer.Serialize(detected).Contains("private-secret"));
+        detected=QuickAdd.Suggest("Mage Tank 03 - Cornman [M4B]");
+        check("Numbered title-first names are recognised",detected.Title=="Mage Tank 03" && detected.Author=="Cornman");
+        detected=QuickAdd.Suggest("Jane_Austen - Pride_and_Prejudice.m4b");
+        check("Author-first filenames remove extension and underscores",detected.Title=="Pride and Prejudice" && detected.Author=="Jane Austen");
+        detected=QuickAdd.Suggest("The Hobbit by J. R. R. Tolkien");
+        check("Explicit by separates title from author",detected.Title=="The Hobbit" && detected.Author=="J. R. R. Tolkien");
+        detected=QuickAdd.Suggest("The Hobbit - J. R. R. Tolkien");
+        check("Leading title article supports title-first ordering",detected.Title=="The Hobbit" && detected.Author=="J. R. R. Tolkien");
+        detected=QuickAdd.Suggest("Jane Austen - Pride and Prejudice - Narrated by Reader Name");
+        check("Narrator is not mistaken for author",detected.Title=="Pride and Prejudice" && detected.Author=="Jane Austen");
+        detected=QuickAdd.Preview(new(Source:h));
+        check("Bare hash does not invent book identity",detected.Title=="" && detected.Author=="" && detected.Notice.Contains("bare info hash"));
+        detected=QuickAdd.Suggest("Only A Title");
+        check("Unidentifiable author stays blank",detected.Title=="Only A Title" && detected.Author=="");
+        detected=QuickAdd.Suggest("An Adventure [Series Two]");
+        check("Book series annotations are preserved",detected.Title=="An Adventure [Series Two]");
+        detected=QuickAdd.Suggest(new string('x',600));
+        check("Suggestions respect form length limits",detected.Title.Length==250 && detected.DisplayName.Length==512);
+        var fileName="Émilie - L’Étoile [M4B]";var fileInfo=Encoding.UTF8.GetBytes("d6:lengthi4e4:name"+Encoding.UTF8.GetByteCount(fileName)+":"+fileName+"12:piece lengthi16384e6:pieces20:abcdefghijklmnopqrste");
+        detected=QuickAdd.Preview(new(TorrentBase64:Convert.ToBase64String([..Encoding.ASCII.GetBytes("d4:info"),..fileInfo,(byte)'e'])));
+        check("Torrent UTF-8 name supplies editable suggestions",detected.Title=="L’Étoile" && detected.Author=="Émilie");
+        detected=QuickAdd.Preview(new(TorrentBase64:Convert.ToBase64String(bytes)));
+        check("Generic torrent name suggests only a title",detected.Title=="book" && detected.Author=="");
     }
 }
