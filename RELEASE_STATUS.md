@@ -1,6 +1,6 @@
 # Release baseline and recovery
 
-Verified locally on Windows on 2026-11-17. Grimarr remains an early alpha.
+Verified on Windows and on a Linux Docker server on 2026-11-17. Grimarr remains an early alpha.
 
 ## Implemented
 
@@ -27,10 +27,25 @@ Verified locally on Windows on 2026-11-17. Grimarr remains an early alpha.
 
 ## Remaining before release
 
-- Run Linux CI and a Docker image smoke test; Docker is unavailable in this local environment. CI results are not claimed by local checks.
-- Run a fresh real-service beta across supported qBittorrent/Prowlarr/Audiobookshelf versions and storage layouts.
-- Expand operational fault testing to actual disk exhaustion, Linux ownership/permissions, and abrupt container termination during a large copy. Current tests cover I/O failure after staging, canceled validation, restart boundaries, and stale staging; they do not simulate every hardware/storage failure.
+- Run public CI; the server-side Linux checks below are separate from a GitHub Actions run.
+- Expand the real-service beta across additional supported versions and storage layouts.
+- Expand operational fault testing to abrupt container termination during a large copy and other storage layouts. Disk exhaustion, Linux permission denial, restart boundaries, and stale staging have been checked, but not every hardware/storage failure is simulated.
 - Complete the later release work: existing-library availability checks, security review, installation/upgrade/restore checks, and release packaging.
+
+## Linux server verification
+
+Application revision `a49b52b` was built and deployed with Docker while preserving the existing config, media mounts, port, container user, credentials, and six managed book entries. A complete pre-update config backup and the original image were retained for rollback.
+
+- All 144 backend/integration checks and the desktop/mobile browser suite passed in a Linux container as UID 1000.
+- The deployed interface passed actual login, existing-library display, recovery-control/default, and mobile-layout checks.
+- The native library copied from the deployed image reported SQLite 3.53.3.
+- 23 live checks passed using synthetic private torrents, real qBittorrent 5.1.4, and an existing isolated Audiobookshelf test library. The indexer responses were synthetic fixtures; real Prowlarr connectivity was verified separately.
+- Live checks covered restart recovery, stopped-torrent protection, stalled-release blocking, same-release retry, manual and automatic replacement, monitoring pause, the actual two-minute missing-torrent grace, manual-mode protection, blocklist clearing, connection outages, wrong mappings, import retry after torrent removal, scan-outage recovery, actual Audiobookshelf indexing, and atomic-import restart recovery.
+- Stall timestamps were accelerated only in an isolated test database; a full 15-minute wall-clock stall was not awaited.
+- Nine additional non-root storage checks passed, including actual ENOSPC in a disposable 2 MB tmpfs, source preservation, no partial library item, successful retry after freeing space, denied Linux permissions and retry, and symlink rejection.
+- Synthetic torrents, media, library entries, and temporary test containers were removed. Existing torrents and library items were retained. Original automation and manual-selection settings were restored; automatic replacement remained disabled.
+
+Retained failed torrents can occupy qBittorrent queue slots. If a replacement remains queued, stop or otherwise manage old transfers in the download client. Audiobookshelf can retain missing-item records after files are removed; test cleanup explicitly removed only the synthetic item's database record.
 
 ## Recovery defaults and limits
 
