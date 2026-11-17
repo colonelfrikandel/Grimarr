@@ -231,7 +231,7 @@ try {
   await page.getByLabel('Apple Books search',{exact:true}).fill('A different query');await new Promise(r=>setTimeout(r,1000));
   assert.equal(await page.getByRole('button',{name:/Choose Catalog edition/}).count(),0,'Canceled Apple response leaked into a changed query');
   catalogMode='matches';await page.getByRole('button',{name:'Find Apple Books matches',exact:true}).click();await page.getByRole('button',{name:'Choose Catalog edition 1 by Catalog Author',exact:true}).click();
-  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('8'.repeat(40));assert.equal(await page.getByLabel('Selected Apple Books match',{exact:true}).count(),0,'Changed torrent retained old catalog metadata');
+  await page.getByLabel('Info hash or magnet link',{exact:true}).fill('8'.repeat(40));await page.getByLabel('Selected Apple Books match',{exact:true}).waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Close dialog'}).click();await page.unroute('**/api/catalog?q=*',catalogRoute);
   console.log('PASS: Apple Books requires explicit edition selection, submits reviewed names and chosen ID, supports empty/error/manual fallback, ignores stale lookups, clears selection on source changes, and fits mobile. Lookup alone creates no books.');
   let fixture={id:'recovery-ui',title:'Recovery fixture',author:'Test Author',cover:'',status:'download-failed',suspended:false,canRemove:false,progress:0.2,

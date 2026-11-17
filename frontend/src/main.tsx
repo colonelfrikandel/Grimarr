@@ -945,7 +945,7 @@ function BookModal({
   return (
     <Modal title={book.title} close={close}>
       <p className="muted">{book.author}</p>
-      {book.description && <details className="book-description"><summary>Book details</summary><p>{book.description}</p>{book.catalogUrl && <a href={book.catalogUrl} target="_blank" rel="noopener noreferrer">View on Apple Books</a>}</details>}
+        {(book.description || book.publishedDate || book.genre) && <details className="book-description"><summary>Book details</summary><p>{book.description}</p><p className="helper">{[book.publishedDate, book.genre].filter(Boolean).join(" · ")}</p>{book.catalogUrl && <a href={book.catalogUrl} target="_blank" rel="noopener noreferrer">View on Apple Books</a>}</details>}
       {error && <Notice text={error} />}
       <div className="detail-state">
         <span className={"badge " + book.status}>
