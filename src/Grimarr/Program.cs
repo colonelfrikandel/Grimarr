@@ -38,6 +38,18 @@ builder.Services.AddRateLimiter(options => {
 });
 builder.Services.AddSingleton<Store>(); builder.Services.AddSingleton<Integrations>(); builder.Services.AddSingleton<Importer>(); builder.Services.AddSingleton<AppleCatalog>(); builder.Services.AddSingleton<Workflow>(); builder.Services.AddHostedService<Worker>();
 var app = builder.Build();
+// A reachable health endpoint must mean the restored database and protection keys work.
+// Validate before starting the worker or accepting requests, including lazy session state.
+try
+{
+    var startupStore=app.Services.GetRequiredService<Store>();
+    _=startupStore.Settings(); _=startupStore.Books();
+    _=app.Services.GetRequiredService<OwnerSession>().Version;
+}
+catch(Exception ex)
+{
+    throw new InvalidOperationException("Grimarr config validation failed. Check config permissions and restore the complete matching config backup, including its protection keys and session state.",ex);
+}
 app.Use(async (context,next) => {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";

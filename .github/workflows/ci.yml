@@ -30,4 +30,6 @@ jobs:
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
       - run: node tests/ui.mjs
+      - run: python3 tests/config_backup_test.py
       - run: docker build -t grimarr:ci .
+      - run: python3 tests/installation.py --image grimarr:ci

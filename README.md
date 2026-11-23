@@ -24,10 +24,10 @@ A self-hosted audiobook manager for Docker. Search for audiobooks through Prowla
 
 - **Listener ratings are not available yet.** Automatic selection currently uses release matching, edition preferences, format preference, and seeder availability.
 - Matching is strict: all title/author words must match, English must be identified, and the requested abridgement must be identifiable. Poorly labelled releases remain monitored. Inspect rejection reasons on the book's detail screen. Matching is heuristic and cannot guarantee recording identity.
-- No archive extraction, book-pack splitting, conversion, quality upgrades, or existing-library adoption yet.
+- No archive extraction, book-pack splitting, conversion, quality upgrades, or bulk existing-library adoption yet. A duplicate review can link a tracked book to an existing item.
 - One managed audiobook per title/author. Preferences are editable while waiting for a release; simultaneous recordings of one book are not supported yet.
 - BitTorrent v1 and hybrid torrents are supported. Pure v2 torrents and direct third-party download URLs without a Prowlarr proxy are not supported yet.
-- “On your shelf” means files were imported and an Audiobookshelf scan was requested. Grimarr does not yet confirm indexing or resolve item-specific playback links.
+- “On your shelf” requires a confirmed Audiobookshelf item at the imported directory with matching reviewed metadata and readable indexed audio. Scan requests and unresolved indexing/review states remain separate.
 - Pause monitoring suspends Grimarr's work, not qBittorrent's transfer. Retry resumes the current stage with the same selected release; replacement searches exclude blocked failures.
 - **Remove book** deletes an entry that has not started downloading, including paused books with no results. Downloading and imported books cannot be removed this way. Activity history is retained; no torrent or media files are deleted.
 - Audio validation checks readable audio streams and positive duration, not a full decode or the book's actual contents.
@@ -51,6 +51,7 @@ Clone the repository and create a local environment file:
 git clone https://github.com/colonelfrikandel/grimarr.git
 cd grimarr
 cp .env.example .env
+chmod 600 .env
 nano .env
 ```
 
@@ -64,6 +65,7 @@ Configure these values in `.env`:
 | `GRIMARR_DATA_DIR` | Host directory containing downloads and the audiobook library | `/srv/media` |
 | `GRIMARR_BIND_IP` | Host interface on which to expose Grimarr | `127.0.0.1` |
 | `GRIMARR_PORT` | Published web interface port | `8787` |
+| `GRIMARR_IMAGE` | Local build tag; use a distinct tag when upgrading | `grimarr:local` |
 
 Use `id -u` and `id -g` to find the current user's IDs, or specify another user/group with the required storage permissions.
 
@@ -79,12 +81,15 @@ Set `GRIMARR_DATA_DIR` to a common parent such as `/srv/media`. Create or select
 
 These appear inside Grimarr as `/data/downloads` and `/data/audiobooks`. A single common `/data` mount allows hardlinks when both folders share a filesystem. The parent `/data` must also be writable: imports are staged in `/data/.grimarr-staging/` before being moved into the library.
 
-Create your config directory and ensure its owner matches `PUID:PGID`. For the default path and current user:
+Create all bind directories before starting Compose. Compose refuses missing paths instead of creating them as root. Their ownership must match `PUID:PGID`. With the current user's IDs and the default paths:
 
 ```bash
 mkdir -p config
 chmod 700 config
+sudo install -d -m 0775 -o "$(id -u)" -g "$(id -g)" /srv/media /srv/media/downloads /srv/media/audiobooks
 ```
+
+Use the actual `GRIMARR_CONFIG_DIR` and `GRIMARR_DATA_DIR` paths if you changed them. If `PUID:PGID` differs from the current user, arrange ownership for that account as well, including `config`. Do not recursively change ownership of an existing shared media tree; grant the selected account access to the relevant parent/download/library folders. Python 3.10+ is required only for the optional host backup tool.
 
 ### Start Grimarr
 
@@ -102,6 +107,8 @@ The initial build requires internet access to download images and dependencies. 
 ## Service configuration
 
 For an existing deployment, see [Update and test](UPDATE_AND_TEST.md). It covers preserving your config and encryption keys, upgrading a custom alpha deployment, rollback, and testing failure recovery.
+
+For verified offline config archives and restoration into a fresh directory, see [Backup and restore](BACKUP_AND_RESTORE.md). Back up media and deployment secrets separately. A database-only copy is insufficient to recover encrypted credentials and release identities.
 
 In **Settings**, enter and test your service URLs and credentials:
 

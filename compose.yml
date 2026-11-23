@@ -1,6 +1,7 @@
 services:
   grimarr:
     build: .
+    image: "${GRIMARR_IMAGE:-grimarr:local}"
     container_name: grimarr
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -10,9 +11,17 @@ services:
       GRIMARR_PASSWORD: "${GRIMARR_PASSWORD:?Set a password of at least 12 characters in .env}"
       GRIMARR_CONFIG: /config
     volumes:
-      - "${GRIMARR_CONFIG_DIR:-./config}:/config"
+      - type: bind
+        source: "${GRIMARR_CONFIG_DIR:-./config}"
+        target: /config
+        bind:
+          create_host_path: false
       # Mount the common parent once so downloads and library can use hardlinks.
-      - "${GRIMARR_DATA_DIR:-/srv/media}:/data"
+      - type: bind
+        source: "${GRIMARR_DATA_DIR:-/srv/media}"
+        target: /data
+        bind:
+          create_host_path: false
     security_opt:
       - no-new-privileges:true
     cap_drop:

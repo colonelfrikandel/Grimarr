@@ -2,6 +2,8 @@
 
 These instructions update Grimarr only. Keep the existing Compose configuration, config mount, media mounts, user/group, port, and service credentials. The code changes are committed locally; `git pull` on a server will only receive them after they have been pushed to that server's Git remote. A source archive can be transferred directly instead.
 
+For the verified offline config backup/restore tool and a repeatable installation/upgrade matrix, see [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). The historical `sqlite-recovery` image/directory names below are examples: choose a distinct name for the release you are deploying. Stop and restore full matching config before rolling back to any older binary.
+
 ## 1. Prepare an update and keep the old image
 
 In Grimarr, pause automation under Settings → Profiles. Do this before upgrading so the first checks do not start transfers or imports. Existing qBittorrent transfers continue independently.
