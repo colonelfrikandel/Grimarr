@@ -1,6 +1,19 @@
 # Release baseline and recovery
 
-Verified on Windows and on a Linux Docker server on 2026-11-17. Grimarr remains an early alpha.
+Latest security review and production verification: 2026-11-23. Grimarr remains an early alpha; earlier milestones below retain their original results.
+
+## v1.0 step 5 — security and dependency review
+
+Implemented and deployed revision `945e1b0`, image `grimarr-local:security-945e1b0`, on 2026-11-23. Owner cookies now use protected, persistent rotating session nonces; changing the password invalidates old sessions even if a previous password is reused. Pre-upgrade cookies are rejected, so users must sign in again with their unchanged password. Login limits, request/response bounds, streamed download timeouts, query-log privacy, and browser security headers were hardened. Selected/failed release identifiers are now encrypted, including a retryable migration that removes legacy plaintext database/WAL pages. Torrent/magnet validation, dangling-symlink rejection, and local supported-format-only media probing were tightened.
+
+- Replaced the vulnerable Vite transitive build chain with TypeScript and direct esbuild. Dependency locks and CI checks are retained. Fresh npm and direct/transitive NuGet audits reported no known vulnerable packages. Runtime moved to the official .NET 10 Ubuntu 26.04 image, available OS updates were applied, and an unused bundled Pebble supervisor was removed.
+- All 319 Linux backend/integration checks passed: 201 backend, 13 pipeline, 16 manual-selection, 21 recovery, 23 Quick Add, 20 availability/indexing, and 25 security checks. The complete desktop/mobile browser suite passed with no runtime errors. Another 201 backend checks passed on the exact production runtime image under non-root/capability-restricted execution. All 199 Windows backend checks passed with ffmpeg/ffprobe available; Linux includes additional filesystem checks.
+- All 48 isolated live-service checks passed, including two synthetic torrent transfers through real qBittorrent and Audiobookshelf, Apple metadata/artwork, duplicate holds, verified indexing, review, persistence, and cleanup. Five isolated config migration/full-backup restore checks passed with a cloned six-book config, including restoration for the older binary. Synthetic fixtures were removed; these tests do not demonstrate availability of public torrent peers.
+- The refreshed image scan reported **zero critical/high vulnerabilities and zero embedded secrets**. It still reports 364 medium and 12 low package findings across 99 unique CVEs, with no available fixed versions reported. These vendor-unfixed OS findings remain open; the image is not vulnerability-free. Reports capture the advisory feed at scan time and must be refreshed during maintenance.
+- Production is healthy. All six original books and confirmed Audiobookshelf identities, paths, preferences, credentials, mounts, port, and automation settings were preserved. Prowlarr, qBittorrent, and Audiobookshelf connection tests passed. The actual production UI passed login, editable magnet/torrent autofill, real Apple edition/cover selection, Prowlarr availability, and mobile/runtime checks without adding books. Desktop/mobile screenshots were reviewed. Config/key/database permissions were restricted.
+- Private backup, original Compose, and verification reports are under `/home/frikandel/grimarr-alpha/security-945e1b0/`; backup: `config-before.tar.gz`; retained image: `grimarr-local:before-security-945e1b0`. **Rollback to the older binary requires restoring the complete matching pre-upgrade config, including keys. An image-only rollback cannot decode the newly protected identifiers.**
+
+See [SECURITY.md](SECURITY.md) for review scope and remaining trust boundaries. This review is not an independent penetration test. Public CI, broader beta coverage, the remaining installation/upgrade/restore matrix, and release packaging remain outstanding.
 
 ## Implemented
 
@@ -30,7 +43,7 @@ Verified on Windows and on a Linux Docker server on 2026-11-17. Grimarr remains 
 - Run public CI; the server-side Linux checks below are separate from a GitHub Actions run.
 - Expand the real-service beta across additional supported versions and storage layouts.
 - Expand operational fault testing to abrupt container termination during a large copy and other storage layouts. Disk exhaustion, Linux permission denial, restart boundaries, and stale staging have been checked, but not every hardware/storage failure is simulated.
-- Complete the later release work: security review, installation/upgrade/restore checks, and release packaging.
+- Complete the later release work: the remaining installation/upgrade/restore matrix and release packaging. Step 5 security review is recorded above.
 
 ## v1.0 step 4 — existing-library duplicates and confirmed indexing
 

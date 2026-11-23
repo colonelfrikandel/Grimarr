@@ -21,6 +21,8 @@ The frontend uses a small esbuild script plus TypeScript checks. Vite and its pl
 
 NuGet direct/transitive versions and content hashes are recorded in `src/Grimarr/packages.lock.json`. Container restores use locked mode; vulnerability warnings fail restores. CI also runs dependency audits and targeted security integration tests. Audit results describe the available advisory feeds at review time and must be rerun as dependencies and advisories change.
 
+The deployed `945e1b0` runtime uses the official .NET 10 Ubuntu 26.04 base with available OS package upgrades applied. The unused bundled Pebble supervisor was removed. On 2026-11-23, npm and NuGet audits reported no known vulnerable dependencies. An isolated Trivy image scan reported no critical/high vulnerabilities or embedded secrets, but retained 364 medium and 12 low OS package findings across 99 unique CVEs, with no fixed versions reported. These lower-severity findings remain open and require ongoing vendor/advisory monitoring. They are not suppressed or treated as resolved. See the step 5 results in [RELEASE_STATUS.md](RELEASE_STATUS.md).
+
 ## Upgrading and rolling back this security change
 
 Back up the **entire config directory, including protection keys**, while the app is stopped, and retain the original image and Compose file. This change encrypts fields that older binaries do not decode. To roll back to an older binary, restore its corresponding complete pre-upgrade config backup before starting it; changing only the image is insufficient. Keep backups private and do not commit them, `.env`, or protection keys.
