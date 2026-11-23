@@ -8,13 +8,12 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 
+if(args.FirstOrDefault()=="password") { Environment.ExitCode=OwnerPassword.ChangeFromConsole(args.Skip(1).ToArray());return; }
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics",LogLevel.Warning);
 builder.WebHost.ConfigureKestrel(options=>{ options.AddServerHeader=false;options.Limits.MaxRequestBodySize=AppSecurity.MaximumApiBody; });
-var password = builder.Configuration["GRIMARR_PASSWORD"];
-if(string.IsNullOrWhiteSpace(password) || password.Length < 12) throw new InvalidOperationException("Set GRIMARR_PASSWORD to a password of at least 12 characters.");
 var configRoot = builder.Configuration["GRIMARR_CONFIG"] ?? Path.Combine(AppContext.BaseDirectory,"config");
 AppSecurity.PrivateConfigDirectory(configRoot);
 if(!File.Exists(Path.Combine(configRoot,"grimarr.db")) &&
@@ -22,6 +21,7 @@ if(!File.Exists(Path.Combine(configRoot,"grimarr.db")) &&
     (Directory.Exists(Path.Combine(configRoot,"keys")) && Directory.EnumerateFiles(Path.Combine(configRoot,"keys")).Any())))
     throw new InvalidOperationException("Grimarr config contains protection state but no database. Restore the complete matching config backup; refusing to create an empty replacement database.");
 builder.Services.AddSingleton<OwnerSession>();
+builder.Services.AddSingleton<OwnerPassword>();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(configRoot,"keys")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options => {
     options.Cookie.Name = "grimarr.session"; options.Cookie.HttpOnly = true; options.Cookie.SameSite = SameSiteMode.Strict;
@@ -73,8 +73,9 @@ app.Use(async (context,next) => {
 app.UseDefaultFiles(); app.UseStaticFiles(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapPost("/api/login", async (LoginRequest input, HttpContext context, OwnerSession sessions) => {
-    if(!CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(input.Password ?? "")), SHA256.HashData(Encoding.UTF8.GetBytes(password)))) return Results.Unauthorized();
-    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner"),new Claim(AppSecurity.SessionClaim,sessions.Version) },CookieAuthenticationDefaults.AuthenticationScheme)));
+    var version=sessions.LoginVersion(input.Password);
+    if(version is null)return Results.Unauthorized();
+    await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name,"owner"),new Claim(AppSecurity.SessionClaim,version) },CookieAuthenticationDefaults.AuthenticationScheme)));
     return Results.Ok();
 }).RequireRateLimiting("login");
 var api = app.MapGroup("/api").RequireAuthorization();

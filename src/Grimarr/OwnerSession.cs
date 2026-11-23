@@ -7,26 +7,44 @@ namespace Grimarr;
 public sealed class OwnerSession
 {
     private record State(string PasswordVersion,string Version);
-    public string Version { get; }
-    public OwnerSession(IConfiguration configuration,IDataProtectionProvider protection)
+    private readonly object gate=new();
+    private readonly OwnerPassword password;
+    private readonly IDataProtector protector;
+    private readonly string file;
+    public OwnerSession(IConfiguration configuration,IDataProtectionProvider protection):this(configuration,protection,new OwnerPassword(configuration)) { }
+    public OwnerSession(IConfiguration configuration,IDataProtectionProvider protection,OwnerPassword password)
     {
-        var password=configuration["GRIMARR_PASSWORD"] ?? throw new InvalidOperationException("Configure the owner password.");
+        this.password=password;
         var root=configuration["GRIMARR_CONFIG"] ?? Path.Combine(AppContext.BaseDirectory,"config");AppSecurity.PrivateConfigDirectory(root);
-        var file=Path.Combine(root,"session-state");var protector=protection.CreateProtector("Grimarr.OwnerSession.v1");
-        var fingerprint=AppSecurity.PasswordFingerprint(password);
+        file=Path.Combine(root,"session-state");protector=protection.CreateProtector("Grimarr.OwnerSession.v1");
+    }
+    public string Version { get { lock(gate)return VersionFor(password.Current()); } }
+    public string? LoginVersion(string? candidate)
+    {
+        if(candidate is null)return null;
+        lock(gate)
+        {
+            var state=password.Current();if(!OwnerPassword.Verify(state,candidate))return null;
+            return VersionFor(state);
+        }
+    }
+    private string VersionFor(OwnerPassword.HashState passwordState)
+    {
+        var fingerprint=OwnerPassword.Fingerprint(passwordState);
         if(File.Exists(file))
         {
             var state=JsonSerializer.Deserialize<State>(protector.Unprotect(File.ReadAllText(file))) ?? throw new InvalidOperationException("Restore a valid owner session state from the complete config backup.");
-            if(AppSecurity.ValidSession(state.PasswordVersion,fingerprint) && state.Version.Length==64) { Version=state.Version;return; }
+            if(AppSecurity.ValidSession(state.PasswordVersion,fingerprint) && state.Version.Length==64)return state.Version;
         }
-        Version=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        var temporary=Path.Combine(root,".session-state-"+Guid.NewGuid().ToString("N"));
+        var version=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var temporary=Path.Combine(Path.GetDirectoryName(file)!,".session-state-"+Guid.NewGuid().ToString("N"));
         try
         {
-            File.WriteAllText(temporary,protector.Protect(JsonSerializer.Serialize(new State(fingerprint,Version))));
-            if(!OperatingSystem.IsWindows())File.SetUnixFileMode(temporary,UnixFileMode.UserRead|UnixFileMode.UserWrite);
+            using(var stream=new FileStream(temporary,OwnerPassword.PrivateOptions()))
+            using(var writer=new StreamWriter(stream))writer.Write(protector.Protect(JsonSerializer.Serialize(new State(fingerprint,version))));
             File.Move(temporary,file,true);
         }
         finally { if(File.Exists(temporary))File.Delete(temporary); }
+        return version;
     }
 }

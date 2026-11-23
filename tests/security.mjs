@@ -1,5 +1,5 @@
 import http from 'node:http';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import {Readable} from 'node:stream';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
@@ -45,10 +45,13 @@ try {
  await check('Anonymous requests cannot exhaust the authenticated catalog quota',async()=>{for(let n=0;n<17;n++)assert.equal((await fetch(base+'/api/catalog?q=x')).status,401);await api('/catalog?q=x','GET',undefined,400);});
  await check('Static routes cannot expose config databases or encryption keys',async()=>{for(const route of ['/config/grimarr.db','/config/keys/private.xml','/../config/grimarr.db']){const r=await fetch(base+route);const text=await r.text();assert(!text.startsWith('SQLite format 3'));assert(!text.includes('private-identifier-sentinel'));assert(!text.includes('<masterKey'));}});
  const originalCookie=cookie;await stop();await start();await check('Same-password restart retains valid owner sessions',()=>api('/session'));
- password='rotated-security-fixture-password';await stop();await start();cookie=originalCookie;
+ const changePassword=(value,confirmation=value)=>spawnSync(process.env.DOTNET_EXE||'dotnet',[path.resolve('src/Grimarr/bin/Debug/net10.0/Grimarr.dll'),'password','--stdin'],{env:{...process.env,GRIMARR_CONFIG:config},input:JSON.stringify({password:value,confirmation}),encoding:'utf8',windowsHide:true});
+ await check('Password confirmation mismatch preserves the saved credential',async()=>{const before=await readFile(path.join(config,'owner-password.json'),'utf8');assert.equal(changePassword('new-value','different').status,1);assert.equal(await readFile(path.join(config,'owner-password.json'),'utf8'),before);});
+ password='rotated-security-fixture-password';assert.equal(changePassword(password).status,0);cookie=originalCookie;
  await check('Password rotation rejects previously issued sessions',()=>api('/session','GET',undefined,401));await login();
- password='security-fixture-password';await stop();await start();cookie=originalCookie;
+ password='security-fixture-password';assert.equal(changePassword(password).status,0);cookie=originalCookie;
  await check('Returning to an old password does not resurrect its old session',()=>api('/session','GET',undefined,401));await login();
+ await check('Password file retains only a salted PBKDF2 hash',async()=>{const raw=await readFile(path.join(config,'owner-password.json'),'utf8');assert(!raw.includes(password));const record=JSON.parse(raw);assert.equal(record.Algorithm,'PBKDF2-SHA256');assert.equal(record.Iterations,600000);});
  await check('Tampered cookies are rejected',async()=>{const r=await fetch(base+'/api/session',{headers:{Cookie:cookie+'tampered'}});assert.equal(r.status,401);});
  let s=(await api('/settings')).settings;s={...s,libraryId:'fixture',libraryRoot:library,downloadRoot:downloads,audiobookshelf:{url:mockUrl,apiKey:'abs-fixture-secret'},qbittorrent:{url:mockUrl,username:'admin',password:'qbit-fixture-secret'},prowlarr:{url:mockUrl,apiKey:'prowlarr-fixture-secret'},automationEnabled:true};await api('/settings','PUT',s);
  const badBooks=[];

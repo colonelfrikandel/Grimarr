@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-rc.2 — 2026-11-23
+
+- Removed password length/composition restrictions, including empty and whitespace passwords, without trimming or normalization.
+- Replaced plaintext password configuration with a private salted PBKDF2-SHA256 hash file. Existing environment passwords migrate once; subsequent changes use the interactive password command.
+- Added password initialization/reset without putting plaintext in files or command arguments. Changes take effect without restarting and revoke existing sessions, including when reusing old passwords.
+- Updated installation/release instructions and tests for hash-only configuration. Historical private backups retain their original contents.
+
 ## 1.0.0-rc.1 — 2026-11-23
 
 First packaged release candidate for Linux/amd64 Docker installations. This is a prerelease, not a claim that the outstanding beta/CI/disaster-recovery matrix is complete.

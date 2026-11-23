@@ -1,6 +1,6 @@
 # Release packaging and installation
 
-Current version: **1.0.0-rc.1**, a release candidate for Linux/amd64 Docker hosts. A tested private package on the operator's server is distinct from a public GitHub Release or registry publication. No `latest` image alias is used. Image tags include both version and source revision; `release.json` records the exact image ID.
+Current version: **1.0.0-rc.2**, a release candidate for Linux/amd64 Docker hosts. A tested private package on the operator's server is distinct from a public GitHub Release or registry publication. No `latest` image alias is used. Image tags include both version and source revision; `release.json` records the exact image ID.
 
 ## Delivered files
 
@@ -18,9 +18,10 @@ cp release.env.example .env
 chmod 600 .env
 ```
 
-Set a unique `GRIMARR_PASSWORD` of at least 12 characters, actual `PUID`/`PGID`, config/data paths, bind address and port in `.env`. Keep `GRIMARR_IMAGE` equal to the image in this package's manifest. Never reuse the placeholder password. Create the config and data/download/library folders with the chosen user's ownership; the shared data parent must allow staging. The package's Compose refuses missing bind directories. Use the README storage instructions from the source bundle.
+Set the actual `PUID`/`PGID`, config/data paths, bind address and port in `.env`. Keep `GRIMARR_IMAGE` equal to the image in this package's manifest. No plaintext password belongs in `.env`. Create the config and data/download/library folders with the chosen user's ownership; the shared data parent must allow staging. The package's Compose refuses missing bind directories. Use the README storage instructions from the source bundle and initialize the password interactively as below; there are no length/composition restrictions. See PASSWORDS.md in the source for changing it later without a restart.
 
 ```bash
+docker compose -f compose.release.yml run --rm --no-deps grimarr password
 docker compose -f compose.release.yml up -d --no-build --pull never
 docker compose -f compose.release.yml ps
 docker compose -f compose.release.yml logs --tail=60 grimarr

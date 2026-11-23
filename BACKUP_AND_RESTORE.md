@@ -2,6 +2,8 @@
 
 The Linux host tool `scripts/config_backup.py` requires Python 3.10+ and Docker CLI access. It backs up the complete `/config` bind mount: SQLite database/WAL, encryption keys, session state and other config files. It does not back up audio, downloads, Audiobookshelf, Compose, `.env` or images. Keep separate private copies of those deployment files, a matching image, and your media/service backups. Only one Grimarr instance may write a config directory; coordinate other writers before taking a backup.
 
+Since 1.0.0-rc.2 the complete config also includes `owner-password.json`, the salted password hash. Restore it with the matching keys/session/database. The plaintext password is not needed in the current container environment; see [PASSWORDS.md](PASSWORDS.md) for initialization/reset. Historical pre-hash binaries still require their original environment password for rollback.
+
 ## Create and verify a backup
 
 Use the actual container name (`grimarr` by default; the custom alpha uses `grimarr-alpha`). Run as an operator who can read all config files and access Docker. Use a private existing backup directory outside `/config`:

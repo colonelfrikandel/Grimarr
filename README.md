@@ -2,7 +2,7 @@
 
 A self-hosted audiobook manager for Docker. Search for audiobooks through Prowlarr, download them with qBittorrent, and automatically import completed downloads into Audiobookshelf.
 
-**Version 1.0.0-rc.1 — release candidate.** Automated and isolated live-service checks cover the download/import and upgrade/restore paths. Broader beta/storage coverage and public release verification remain limited. See [release packaging and installation](RELEASE.md) for the versioned image, checksums, corresponding source and current release scope.
+**Version 1.0.0-rc.2 — release candidate.** Automated and isolated live-service checks cover the download/import and upgrade/restore paths. Broader beta/storage coverage and public release verification remain limited. See [release packaging and installation](RELEASE.md) for the versioned image, checksums, corresponding source and current release scope.
 
 ## Features
 
@@ -59,7 +59,6 @@ Configure these values in `.env`:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `GRIMARR_PASSWORD` | Login password; replace the example with a unique password of at least 12 characters | Must be configured |
 | `PUID` / `PGID` | Container user and group IDs with access to the storage directories | `1000` / `1000` |
 | `GRIMARR_CONFIG_DIR` | Host directory for the database and encryption keys | `./config` |
 | `GRIMARR_DATA_DIR` | Host directory containing downloads and the audiobook library | `/srv/media` |
@@ -96,11 +95,13 @@ Use the actual `GRIMARR_CONFIG_DIR` and `GRIMARR_DATA_DIR` paths if you changed 
 The default `GRIMARR_BIND_IP=127.0.0.1` permits access from the Docker host only. To access Grimarr from other devices, set it to the host's LAN IP or `0.0.0.0` to listen on all host interfaces. A Tailscale IP can also be used when Tailscale is configured on the host.
 
 ```bash
-docker compose up -d --build
+docker compose build grimarr
+docker compose run --rm --no-deps grimarr password
+docker compose up -d --no-build
 docker compose logs -f grimarr
 ```
 
-Open `http://localhost:8787` on the Docker host, or `http://SERVER_IP:8787` when listening on a network interface. Sign in with `GRIMARR_PASSWORD`. Substitute the configured port if it differs from `8787`.
+Open `http://localhost:8787` on the Docker host, or `http://SERVER_IP:8787` when listening on a network interface. Sign in with the password you initialized. Substitute the configured port if it differs from `8787`. Passwords have no length/composition restrictions and are saved only as a salted hash. To change one without restarting, see [PASSWORDS.md](PASSWORDS.md).
 
 The initial build requires internet access to download images and dependencies. Catalog and indexer searches contact their upstream services, and catalog covers load from the catalog's image servers. The web interface assets are served locally.
 
@@ -215,9 +216,9 @@ npm run build
 cd ..
 mkdir -p src/Grimarr/wwwroot
 cp -r frontend/dist/. src/Grimarr/wwwroot/
-export GRIMARR_PASSWORD='a-long-local-development-password'
 export GRIMARR_CONFIG="$PWD/config"
 export ASPNETCORE_URLS='http://127.0.0.1:8787'
+dotnet run --project src/Grimarr -- password
 dotnet run --project src/Grimarr
 ```
 

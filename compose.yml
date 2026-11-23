@@ -8,7 +8,6 @@ services:
     ports:
       - "${GRIMARR_BIND_IP:-127.0.0.1}:${GRIMARR_PORT:-8787}:8787"
     environment:
-      GRIMARR_PASSWORD: "${GRIMARR_PASSWORD:?Set a password of at least 12 characters in .env}"
       GRIMARR_CONFIG: /config
     volumes:
       - type: bind

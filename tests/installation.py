@@ -105,6 +105,7 @@ try:
     missing = subprocess.run(['docker', *compose_args, 'up', '-d', '--no-build', 'grimarr'], capture_output=True, text=True)
     check('Repository Compose rejects missing bind directories instead of creating root-owned storage', missing.returncode != 0 and not config.exists())
     remove(); config.mkdir(mode=0o700)
+    docker('run', '--rm', '-i', '--user', f'{os.getuid()}:{os.getgid()}', '--env', 'GRIMARR_CONFIG=/config', '--mount', 'type=bind,source=' + str(config) + ',target=/config', args.image, 'password', '--stdin', input=json.dumps({'password': password, 'confirmation': password}))
     docker(*compose_args, 'up', '-d', '--no-build', 'grimarr')
     c = Client().ready()
     release = c.api('system')
@@ -200,8 +201,10 @@ try:
         mutate(bad); start(bad); not_ready(label); remove()
     readonly = root / 'readonly'; readonly.mkdir(mode=0o700)
     start(readonly, readonly=True); not_ready('Unwritable config fails startup'); remove()
-    env.write_text('GRIMARR_PASSWORD=short\nGRIMARR_CONFIG=/config\n')
-    start(config); not_ready('Short password fails startup'); remove()
+    password = 'x'
+    env.write_text('GRIMARR_PASSWORD=x\nGRIMARR_CONFIG=/config\n')
+    short = root / 'short'; short.mkdir(mode=0o700)
+    start(short); Client().ready(); check('Single-character password is accepted'); remove()
     check('Invalid fixtures did not change the known-good backup', tool.verify(archive)['format'] == 'grimarr-config-v1')
     if args.report:
         args.report.write_text(json.dumps({'passed': passed, 'image': args.image, 'previousImage': args.previous_image, 'isolation': 'Disposable configs only; no media mounts; automation disabled; no service calls'}, indent=2))

@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 
 SCANNER = 'aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb'
-ROOTS = {'.github', '.dockerignore', '.env.example', '.gitignore', 'BACKUP_AND_RESTORE.md', 'CHANGELOG.md', 'Dockerfile', 'LICENSE', 'README.md', 'RELEASE.md', 'RELEASE_STATUS.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'UPDATE_AND_TEST.md', 'VERSION', 'compose.yml', 'frontend', 'scripts', 'src', 'tests'}
+ROOTS = {'.github', '.dockerignore', '.env.example', '.gitignore', 'BACKUP_AND_RESTORE.md', 'CHANGELOG.md', 'Dockerfile', 'LICENSE', 'PASSWORDS.md', 'README.md', 'RELEASE.md', 'RELEASE_STATUS.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'UPDATE_AND_TEST.md', 'VERSION', 'compose.yml', 'frontend', 'scripts', 'src', 'tests'}
 FORBIDDEN = {'.git', '.tools', '.env', 'config', 'keys', 'node_modules', 'bin', 'obj', 'dist', 'wwwroot', 'artifacts', '__pycache__', 'test-results'}
 
 
@@ -124,7 +124,7 @@ def build(args):
         subprocess.run([*scanner, 'convert', '--format', 'cyclonedx', '--output', '/report/sbom.cdx.json', '/report/vulnerabilities.json'], check=True)
         with raw_image.open('rb') as src, (artifacts / image_name).open('xb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=0, compresslevel=1) as compressed:
             shutil.copyfileobj(src, compressed)
-        for name in ('LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md', 'RELEASE.md'):
+        for name in ('LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md', 'RELEASE.md', 'PASSWORDS.md'):
             shutil.copyfile(source / name, artifacts / name)
         compose = (source / 'compose.yml').read_text().replace('    build: .\n', '').replace('${GRIMARR_IMAGE:-grimarr:local}', '${GRIMARR_IMAGE:-' + image + '}')
         (artifacts / 'compose.release.yml').write_text(compose)

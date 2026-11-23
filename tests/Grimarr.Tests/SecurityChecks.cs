@@ -28,10 +28,21 @@ static class SecurityChecks
             IConfiguration SessionConfig(string password)=>new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["GRIMARR_CONFIG"]=root,["GRIMARR_PASSWORD"]=password }).Build();
             var originalSession=new OwnerSession(SessionConfig("fixture-password-one"),provider).Version;
             check("Persisted session nonce survives same-password restarts",new OwnerSession(SessionConfig("fixture-password-one"),provider).Version==originalSession);
+            var passwords=new OwnerPassword(SessionConfig("fixture-password-one"));passwords.Set("fixture-password-two");
             var changedSession=new OwnerSession(SessionConfig("fixture-password-two"),provider).Version;
-            var reusedSession=new OwnerSession(SessionConfig("fixture-password-one"),provider).Version;
+            passwords.Set("fixture-password-one");var reusedSession=new OwnerSession(SessionConfig("fixture-password-one"),provider).Version;
             check("Password reuse cannot resurrect an older cookie",originalSession!=changedSession && reusedSession!=originalSession && reusedSession!=changedSession);
             check("Session state is protected on disk",!File.ReadAllText(Path.Combine(root,"session-state")).Contains(originalSession));
+            check("Password file stores a salted slow hash without plaintext",!File.ReadAllText(Path.Combine(root,"owner-password.json")).Contains("fixture-password-one") && passwords.Current().Iterations==600_000);
+            var priorHash=passwords.Current();passwords.Set("fixture-password-one");check("Repeated password assignments use independent salts",priorHash.Salt!=passwords.Current().Salt);
+            foreach(var candidate in new[]{"","a"," ","  spaces  ","🔒é$'\"\\\n",new string('x',4096)})
+            {
+                passwords.Set(candidate);var current=passwords.Current();
+                check("Unrestricted password round-trips exactly (length "+candidate.Length+")",OwnerPassword.Verify(current,candidate)&&!OwnerPassword.Verify(current,candidate+"x"));
+            }
+            var liveSession=new OwnerSession(SessionConfig("ignored legacy value"),provider);var beforeChange=liveSession.Version;passwords.Set("new");
+            check("Password changes revoke sessions immediately without a restart",liveSession.Version!=beforeChange && liveSession.LoginVersion("new")!=null && liveSession.LoginVersion("old")==null);
+            if(!OperatingSystem.IsWindows())check("Password hashes are owner-only on Unix",File.GetUnixFileMode(Path.Combine(root,"owner-password.json"))==(UnixFileMode.UserRead|UnixFileMode.UserWrite));
             var store=new Store(config,provider);const string identifier="https://tracker.example/download?passkey=identifier-secret";
             var book=new Book {Title="Security fixture",Author="Author",SelectedRelease=new Release {Guid=identifier},FailedReleases=[new(identifier,1,null,"Fixture","Fixture",DateTimeOffset.UtcNow,true)]};store.Save(book);
             using(var db=new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(root,"grimarr.db")}"))

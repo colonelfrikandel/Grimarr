@@ -1,5 +1,5 @@
 import { chromium } from '../frontend/node_modules/@playwright/test/index.mjs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -295,6 +295,11 @@ try {
   await page.getByRole('heading',{name:fixture.title,exact:true}).waitFor();
   assert.equal(await page.locator('img[src="x"]').count(),0);assert.equal(await page.evaluate(()=>window.grimarrXss),undefined);
   console.log('PASS: Untrusted book metadata renders as text without HTML/script execution.');
+  const changed=spawnSync(process.env.DOTNET_EXE||'dotnet',[path.join(root,'src/Grimarr/bin/Debug/net10.0/Grimarr.dll'),'password','--stdin'],{env:{...process.env,GRIMARR_CONFIG:config},input:JSON.stringify({password:'',confirmation:''}),encoding:'utf8',windowsHide:true});
+  assert.equal(changed.status,0);await page.reload();await page.getByRole('button',{name:'Open my library',exact:true}).waitFor();
+  await page.getByLabel('Password',{exact:true}).fill('');await page.getByRole('button',{name:'Open my library',exact:true}).click();
+  await page.getByRole('heading',{name:'Audiobooks',exact:true}).waitFor();
+  console.log('PASS: Password change signs out existing sessions and an empty password signs in through the real form without restart.');
   assert.deepEqual(errors, [], 'Browser runtime errors');
   console.log('PASS: Browser login, navigation, settings, add book, saved edition preference, poster/list switching, sort/filter controls, activity, and mobile layout. No runtime errors.');
 } catch (error) {

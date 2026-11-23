@@ -507,7 +507,6 @@ function Login({ onLogin }: { onLogin: () => void }) {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            required
             autoFocus
           />
         </Field>

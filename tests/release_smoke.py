@@ -31,7 +31,7 @@ with tarfile.open(args.directory / manifest['sourceArchive']) as archive:
     check('Source provenance matches exact packaged revision', provenance['revision'] == manifest['revision'])
     check('Source archive contains no runtime config, secrets or generated dependencies', all(not (set(Path(name).parts[1:]) & tool.FORBIDDEN) for name in names))
 check('Delivered Compose selects packaged image without requiring a source build', 'build:' not in (args.directory / 'compose.release.yml').read_text() and manifest['image'] in (args.directory / 'compose.release.yml').read_text())
-check('Delivered example selects packaged image and contains only the placeholder password', 'GRIMARR_IMAGE=' + manifest['image'] in (args.directory / 'release.env.example').read_text() and 'replace-this-with-a-long-unique-password' in (args.directory / 'release.env.example').read_text())
+check('Delivered example selects packaged image without storing a plaintext password', 'GRIMARR_IMAGE=' + manifest['image'] in (args.directory / 'release.env.example').read_text() and 'GRIMARR_PASSWORD=' not in (args.directory / 'release.env.example').read_text())
 image = manifest['image']
 info = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image]))[0]
 assert info['Id'] == manifest['imageId'] and info['Config']['Labels']['org.opencontainers.image.revision'] == manifest['revision']
