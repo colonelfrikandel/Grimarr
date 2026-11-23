@@ -2,7 +2,7 @@
 
 A self-hosted audiobook manager for Docker. Search for audiobooks through Prowlarr, download them with qBittorrent, and automatically import completed downloads into Audiobookshelf.
 
-**Early alpha, version 0.1.** Automated tests cover the download and import pipeline using simulated services. Live-service compatibility testing is still limited.
+**Version 1.0.0-rc.1 — release candidate.** Automated and isolated live-service checks cover the download/import and upgrade/restore paths. Broader beta/storage coverage and public release verification remain limited. See [release packaging and installation](RELEASE.md) for the versioned image, checksums, corresponding source and current release scope.
 
 ## Features
 

@@ -8,3 +8,5 @@
 config
 .env
 test-results
+artifacts
+**/__pycache__

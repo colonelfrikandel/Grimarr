@@ -1,5 +1,5 @@
 name: Build and verify
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -31,5 +31,20 @@ jobs:
         working-directory: frontend
       - run: node tests/ui.mjs
       - run: python3 tests/config_backup_test.py
+      - run: python3 tests/release_package_test.py
       - run: docker build -t grimarr:ci .
       - run: python3 tests/installation.py --image grimarr:ci
+      - name: Package exact source and scanned runtime
+        run: |
+          mkdir -p artifacts
+          git archive --format=tar.gz --output="$RUNNER_TEMP/grimarr-source.tar.gz" HEAD
+          python3 scripts/release.py build --source-archive "$RUNNER_TEMP/grimarr-source.tar.gz" --revision "$(git rev-parse HEAD)" --output artifacts/release --cache-dir "$RUNNER_TEMP/grimarr-scanner-cache"
+          python3 tests/release_smoke.py --directory artifacts/release
+          IMAGE=$(python3 -c "import json; print(json.load(open('artifacts/release/release.json'))['image'])")
+          python3 tests/installation.py --image "$IMAGE" --previous-image grimarr:ci --compose-file artifacts/release/compose.release.yml
+      - uses: actions/upload-artifact@v7
+        with:
+          name: grimarr-linux-amd64-release
+          path: artifacts/release/
+          compression-level: 0
+          retention-days: 14

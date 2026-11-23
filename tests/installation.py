@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--image', required=True)
 parser.add_argument('--previous-image', help='Optional older Grimarr image to create the upgrade fixture.')
 parser.add_argument('--report', type=Path)
+parser.add_argument('--compose-file', type=Path, help='Exercise the delivered release Compose instead of the source-build example.')
 args = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix='grimarr-install-'))
 os.chmod(root, 0o700)
@@ -99,13 +100,21 @@ try:
     compose_env.write_text(env.read_text() + f'PUID={os.getuid()}\nPGID={os.getgid()}\nGRIMARR_IMAGE={args.image}\nGRIMARR_CONFIG_DIR={config}\nGRIMARR_DATA_DIR={data}\nGRIMARR_BIND_IP=127.0.0.1\nGRIMARR_PORT=0\n')
     override = root / 'compose.override.json'
     override.write_text(json.dumps({'services': {'grimarr': {'container_name': name, 'labels': {'grimarr.install-test': token}}}}))
-    compose_args = ['compose', '--project-name', name, '--env-file', str(compose_env), '-f', str(source_root / 'compose.yml'), '-f', str(override)]
+    compose_args = ['compose', '--project-name', name, '--env-file', str(compose_env), '-f', str(args.compose_file or source_root / 'compose.yml'), '-f', str(override)]
     config.rmdir()
     missing = subprocess.run(['docker', *compose_args, 'up', '-d', '--no-build', 'grimarr'], capture_output=True, text=True)
     check('Repository Compose rejects missing bind directories instead of creating root-owned storage', missing.returncode != 0 and not config.exists())
     remove(); config.mkdir(mode=0o700)
     docker(*compose_args, 'up', '-d', '--no-build', 'grimarr')
     c = Client().ready()
+    release = c.api('system')
+    labels = inspect()['Config']['Labels']
+    check('Installed API reports the packaged version and source revision', release['version'] == (source_root / 'VERSION').read_text().strip() and release['revision'] == labels['org.opencontainers.image.revision'])
+    try:
+        urllib.request.urlopen(c.base + '/api/system')
+        raise AssertionError('Build information should require owner authentication')
+    except urllib.error.HTTPError as error:
+        check('Build information is restricted to authenticated owners', error.code == 401)
     check('Repository Compose installs as configured non-root UID with dropped capabilities and private config', inspect()['Config']['User'] == f'{os.getuid()}:{os.getgid()}' and inspect()['HostConfig']['CapDrop'] == ['ALL'])
     check('Fresh install has an empty library and automation disabled', c.api('books') == [] and not c.api('settings')['settings']['automationEnabled'])
     with urllib.request.urlopen(c.base) as response:

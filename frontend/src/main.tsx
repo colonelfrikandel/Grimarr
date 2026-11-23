@@ -196,7 +196,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          Grimarr 0.1 <span>Alpha</span>
+          Grimarr {__GRIMARR_VERSION__.split('-')[0]} <span>{__GRIMARR_VERSION__.includes('-') ? __GRIMARR_VERSION__.split('-')[1].replaceAll('.', ' ').toUpperCase() : 'Release'}</span>
         </div>
       </aside>
       <main>

@@ -78,6 +78,11 @@ app.MapPost("/api/login", async (LoginRequest input, HttpContext context, OwnerS
     return Results.Ok();
 }).RequireRateLimiting("login");
 var api = app.MapGroup("/api").RequireAuthorization();
+api.MapGet("/system", () => {
+    var build=typeof(Store).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute),false)
+        .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion.Split('+',2);
+    return Results.Ok(new { version=build[0], revision=build.Length==2 ? build[1] : "unknown" });
+});
 api.MapGet("/session", () => Results.Ok(new { authenticated = true }));
 api.MapPost("/logout", async (HttpContext context) => { await context.SignOutAsync(); return Results.Ok(); });
 api.MapGet("/settings", (Store store) => PublicSettings(store.Settings()));
