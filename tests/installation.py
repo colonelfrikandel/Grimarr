@@ -117,7 +117,7 @@ try:
     remove()
 
     # Create encrypted workflow state with the actual previous image where supplied.
-    legacy = root / 'legacy'; legacy.mkdir(mode=0o700)
+    legacy = root / 'legacy config'; legacy.mkdir(mode=0o700)
     start(legacy, args.previous_image)
     check('Custom non-root install supports read-only container root', inspect()['HostConfig']['ReadonlyRootfs'])
     c = Client().ready()
@@ -130,7 +130,7 @@ try:
     c.api('settings', s, 'PUT')
     c.api('books/quick-add', {'title': 'Restore fixture', 'author': 'Fixture author', 'source': 'magnet:?xt=urn:btih:' + 'a' * 40 + '&tr=https%3A%2F%2Ftracker.example%2Fprivate'})
     before = c.api('books'); settings_before = c.api('settings'); activity_before = c.api('activity')
-    archive = root / 'before.tar.gz'
+    archive = root / 'before config.tar.gz'
     tool.backup(name, archive)
     check('Backup stops/restarts only its running fixture and publishes mode 0600', inspect()['State']['Running'] and archive.stat().st_mode & 0o777 == 0o600)
     Client().ready()
@@ -144,6 +144,25 @@ try:
     docker('restart', name)
     upgraded = Client().ready()
     check('Restart preserves workflow identity without any duplicate record', upgraded.api('books') == before)
+    link = root / 'upgraded/unsafe-link'
+    link.symlink_to(root / 'upgraded/grimarr.db')
+    try:
+        tool.backup(name, root / 'rejected.tar.gz')
+        raise AssertionError('Symlink config was backed up')
+    except ValueError:
+        pass
+    finally:
+        link.unlink()
+    upgraded = Client().ready()
+    check('Backup validation failure restarts the original app without publishing an archive', not (root / 'rejected.tar.gz').exists() and upgraded.api('books') == before)
+    original_hash = tool.digest(archive)
+    for rejected in (archive, root / 'upgraded/nested.tar.gz'):
+        try:
+            tool.backup(name, rejected)
+            raise AssertionError('Unsafe backup destination was accepted')
+        except ValueError:
+            pass
+    check('Backup refuses overwrite and config-contained output without losing existing archive', tool.digest(archive) == original_hash and inspect()['State']['Running'])
     # Save a new checked archive while stopped and ensure backup leaves a stopped app stopped.
     docker('stop', name)
     tool.backup(name, root / 'after.tar.gz')
@@ -165,6 +184,7 @@ try:
         ('Missing protection keys fail startup before healthy status', lambda p: shutil.rmtree(p / 'keys')),
         ('Corrupt session state fails startup before healthy status', lambda p: (p / 'session-state').write_text('invalid session')),
         ('Corrupt database fails startup before healthy status', lambda p: (p / 'grimarr.db').write_bytes(b'not sqlite')),
+        ('Missing database with restored protection state fails instead of creating an empty library', lambda p: (p / 'grimarr.db').unlink()),
     ]:
         bad = root / secrets.token_hex(4)
         tool.restore(root / 'after.tar.gz', bad)

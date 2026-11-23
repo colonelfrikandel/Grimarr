@@ -17,6 +17,10 @@ var password = builder.Configuration["GRIMARR_PASSWORD"];
 if(string.IsNullOrWhiteSpace(password) || password.Length < 12) throw new InvalidOperationException("Set GRIMARR_PASSWORD to a password of at least 12 characters.");
 var configRoot = builder.Configuration["GRIMARR_CONFIG"] ?? Path.Combine(AppContext.BaseDirectory,"config");
 AppSecurity.PrivateConfigDirectory(configRoot);
+if(!File.Exists(Path.Combine(configRoot,"grimarr.db")) &&
+   (File.Exists(Path.Combine(configRoot,"session-state")) ||
+    (Directory.Exists(Path.Combine(configRoot,"keys")) && Directory.EnumerateFiles(Path.Combine(configRoot,"keys")).Any())))
+    throw new InvalidOperationException("Grimarr config contains protection state but no database. Restore the complete matching config backup; refusing to create an empty replacement database.");
 builder.Services.AddSingleton<OwnerSession>();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(configRoot,"keys")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(options => {

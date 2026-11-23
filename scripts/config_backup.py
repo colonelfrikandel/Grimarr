@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline Grimarr config backups. Python 3.10+, Linux, Docker CLI; no third-party packages."""
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -32,7 +33,7 @@ def digest(path):
 
 def validate_config(config):
     require((config / 'grimarr.db').is_file(), 'Config is missing grimarr.db.')
-    with sqlite3.connect((config / 'grimarr.db').as_uri() + '?mode=ro', uri=True) as db:
+    with closing(sqlite3.connect((config / 'grimarr.db').as_uri() + '?mode=ro', uri=True)) as db:
         require(db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok', 'Database integrity check failed.')
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         require({'settings', 'books', 'activity'} <= tables, 'Not a complete Grimarr database.')

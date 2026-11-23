@@ -1,5 +1,6 @@
 """Config archive safety tests; no Docker or external services required."""
 import importlib.util
+from contextlib import closing
 import io
 import json
 import os
@@ -21,7 +22,7 @@ class Archives(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.config = self.root / 'config'
         self.config.mkdir(mode=0o700)
-        with sqlite3.connect(self.config / 'grimarr.db') as db:
+        with closing(sqlite3.connect(self.config / 'grimarr.db')) as db, db:
             for name in ('settings', 'books', 'activity'):
                 db.execute('CREATE TABLE ' + name + ' (json TEXT)')
             db.execute('INSERT INTO books VALUES (?)', ('{"title":"Restore fixture"}',))
@@ -89,7 +90,7 @@ class Archives(unittest.TestCase):
 
     def test_encrypted_config_without_keys_is_incomplete(self):
         (self.config / 'keys/key.xml').unlink()
-        with sqlite3.connect(self.config / 'grimarr.db') as db:
+        with closing(sqlite3.connect(self.config / 'grimarr.db')) as db, db:
             db.execute('INSERT INTO settings VALUES (?)', ('{"secret":"protected:fixture"}',))
         with self.assertRaises(ValueError):
             tool.validate_config(self.config)
