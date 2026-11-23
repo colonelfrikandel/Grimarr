@@ -1,6 +1,18 @@
 # Release baseline and recovery
 
-Latest security review and production verification: 2026-11-23. Grimarr remains an early alpha; earlier milestones below retain their original results.
+Latest installation/upgrade/restore and production verification: 2026-11-23. Grimarr remains an early alpha; earlier milestones below retain their original results.
+
+## v1.0 step 6 — installation, upgrades and backup restoration
+
+Implemented and deployed revision `23935e0`, image `grimarr-local:operations-23935e0`, on 2026-11-23. Startup now validates decryptable settings, books and protected session state before accepting requests or advertising health. Existing protection state without a database is rejected instead of silently creating an empty library. Repository Compose refuses missing bind paths, preventing accidentally created root-owned storage, and supports an explicit local image tag. Installation instructions cover private environment files, directory ownership and writable staging parents.
+
+- Added the Linux/Python host tool [scripts/config_backup.py](scripts/config_backup.py) and [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). The tool stops only the named Grimarr container, takes a verified full offline config archive, and restarts it only if it was previously running. Backups include file hashes, ownership/modes, keys, database/WAL and session state; published archives are private. Restoration verifies every member and restores into a new directory. It refuses unsafe paths, links/special files, duplicate/missing members, corrupt/truncated archives and overwriting existing config. Config-contained backup outputs are rejected. Database integrity and protected-config completeness are checked. Deployment environment, images, media and other services require separate backups.
+- All eight archive safety tests passed. Both real upgrade paths (`library-3d54840` before security encryption, and `security-945e1b0`) passed 21 installation/upgrade/restore checks each: fresh repository Compose install, missing mount rejection, non-root operation, static assets, private queued state, restart, running/stopped backup semantics, safe failure recovery, full restore/rollback, missing keys/database, corrupt session/database, unwritable config and short passwords. Paths containing spaces were exercised. CI includes the archive suite and same-version installation matrix; the two prior-version paths were run on the server, separately from public CI.
+- Took a verified backup of the actual production config and restored it on the candidate in a container with **no network, no media mounts and automation disabled**. Four checks confirmed all six books and complete workflow identities, preferences and decrypted service secrets, isolation, and unchanged production state after backup/restart. The temporary restored config was removed; private verified archives remain retained.
+- The final candidate passed all 319 Linux backend/integration checks, the full desktop/mobile browser suite, 201 backend/media checks on its exact restricted production runtime, and 199 Windows backend checks. Another 48 live-service checks passed with synthetic magnet/torrent-file audio transfers, Apple artwork/metadata, actual Audiobookshelf indexing, duplicate review and restart. Original torrents/items were preserved and synthetic fixtures cleaned. Dependency/build audits passed; refreshed image scan remained at zero critical/high findings and zero embedded secrets, with the same 364 medium/12 low vendor-unfixed package findings (99 unique CVEs).
+- Production is healthy. All six confirmed books, credentials, paths, preferences, mounts, ports, automation/manual-selection settings and same-password sessions were preserved. All three service connection tests and the actual production desktop/mobile Quick Add/Apple UI checks passed without adding books. A verified pre-deployment config archive, original Compose, reports and screenshots are under `/home/frikandel/grimarr-alpha/operations-23935e0/`. Rollback archive: `config-at-deploy.tar.gz`; retained old image: `grimarr-local:before-operations-23935e0`. Use the complete matching config plus retained image for rollback.
+
+This completes the baseline step 6 matrix for Linux Docker bind-mount deployments. Public CI, broader beta/version/storage coverage, an off-host disaster-recovery drill including media and other services, and release packaging remain outstanding; these tests do not simulate every host/filesystem failure or historical version.
 
 ## v1.0 step 5 — security and dependency review
 
@@ -13,7 +25,7 @@ Implemented and deployed revision `945e1b0`, image `grimarr-local:security-945e1
 - Production is healthy. All six original books and confirmed Audiobookshelf identities, paths, preferences, credentials, mounts, port, and automation settings were preserved. Prowlarr, qBittorrent, and Audiobookshelf connection tests passed. The actual production UI passed login, editable magnet/torrent autofill, real Apple edition/cover selection, Prowlarr availability, and mobile/runtime checks without adding books. Desktop/mobile screenshots were reviewed. Config/key/database permissions were restricted.
 - Private backup, original Compose, and verification reports are under `/home/frikandel/grimarr-alpha/security-945e1b0/`; backup: `config-before.tar.gz`; retained image: `grimarr-local:before-security-945e1b0`. **Rollback to the older binary requires restoring the complete matching pre-upgrade config, including keys. An image-only rollback cannot decode the newly protected identifiers.**
 
-See [SECURITY.md](SECURITY.md) for review scope and remaining trust boundaries. This review is not an independent penetration test. Public CI, broader beta coverage, the remaining installation/upgrade/restore matrix, and release packaging remain outstanding.
+See [SECURITY.md](SECURITY.md) for review scope and remaining trust boundaries. This review is not an independent penetration test. The baseline installation/upgrade/restore matrix was subsequently completed in step 6 above; public CI, broader beta coverage and release packaging remain outstanding.
 
 ## Implemented
 
@@ -43,7 +55,7 @@ See [SECURITY.md](SECURITY.md) for review scope and remaining trust boundaries. 
 - Run public CI; the server-side Linux checks below are separate from a GitHub Actions run.
 - Expand the real-service beta across additional supported versions and storage layouts.
 - Expand operational fault testing to abrupt container termination during a large copy and other storage layouts. Disk exhaustion, Linux permission denial, restart boundaries, and stale staging have been checked, but not every hardware/storage failure is simulated.
-- Complete the later release work: the remaining installation/upgrade/restore matrix and release packaging. Step 5 security review is recorded above.
+- Complete release packaging and the broader beta/storage matrix. Steps 5 and 6 security and installation/upgrade/restore results are recorded above.
 
 ## v1.0 step 4 — existing-library duplicates and confirmed indexing
 
